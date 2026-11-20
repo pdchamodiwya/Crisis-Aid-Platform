@@ -1,0 +1,27 @@
+digraph Architecture {
+  graph [label="CrisisAid • Modular Monolith Architecture", labelloc=t, fontsize=22, fontname="DejaVu Sans", bgcolor="white", ranksep=.75, nodesep=.55, pad=.3];
+  node [shape=box, style="rounded,filled", fontname="DejaVu Sans", fontsize=12, fillcolor="#e9f4f6", color="#7caab0", penwidth=1.2, margin=".18,.13"];
+  edge [color="#557d90", penwidth=1.6, arrowsize=.7, fontname="DejaVu Sans", fontsize=9];
+  citizen [label="Affected people • volunteers • coordinators\nWeb browsers",fillcolor="#e8f1fd"];
+  react [label="React Web Client\nRole-based UI, form validation, Leaflet map",fillcolor="#d7f0eb"];
+  api [label="ASP.NET Core REST API\nJWT / RBAC • input validation • OpenAPI",fillcolor="#d7eaf7"];
+  subgraph cluster_modules { label="Application Modules (Dependency Injection)"; color="#bfd9de"; style="rounded,dashed";
+    case [label="Case Management &\nHuman Approval"];
+    ai [label="AI Decision Support\nExternal API + fallback"];
+    logistics [label="Logistics &\nShelters"];
+    people [label="Volunteer &\nDonation"];
+    events [label="Audit &\nNotification Outbox"];
+    {rank=same;case;ai;logistics;people;events}
+  }
+  sql [label="SQL Server 2022\nEF Core + serialisable transactions",fillcolor="#f6eadc"];
+  external [label="External AI (optional)\nTimeout • privacy minimisation",fillcolor="#f6e4e7"];
+  map [label="OpenStreetMap / Nominatim\nMap tiles • geocoding",fillcolor="#f4edd8"];
+  mail [label="SMTP Gateway (optional)\nIn-app notifications fallback",fillcolor="#f4edd8"];
+  citizen->react->api;
+  api->{case ai logistics people events};
+  {case ai logistics people events}->sql;
+  ai->external [label="optional request"];
+  api->map [label="geocoding"];
+  react->map [label="tiles"];
+  events->mail [label="outbox worker"];
+}

@@ -1,0 +1,21 @@
+SE205.3 — Group Presentation Recording Submission
+Group number: [GROUP_NUMBER]
+Group member names and index numbers:
+1. [NAME / INDEX]
+2. [NAME / INDEX]
+3. [NAME / INDEX]
+4. [NAME / INDEX]
+5. [NAME / INDEX]
+6. [NAME / INDEX]
+
+OneDrive recording URL (set access for all evaluators):
+[VIDEO_ONEDRIVE_URL]
+
+Source code repository URL:
+[GITHUB_URL]
+
+NSBM OneDrive source ZIP URL (accessible to all evaluators):
+[SOURCE_ONEDRIVE_URL]
+
+Recording date:
+[RECORDING_DATE]

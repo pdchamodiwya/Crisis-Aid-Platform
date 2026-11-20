@@ -1,0 +1,15 @@
+digraph Components {
+ graph [label="Component Diagram • Application Boundaries",fontname="DejaVu Sans",labelloc=t,fontsize=21,ranksep=.8,pad=.3];
+ node [shape=box,style="rounded,filled",fontname="DejaVu Sans",fontsize=12,color="#8db4c0",fillcolor="#e9f5f6",margin=".2,.15"];
+ edge [color="#7194a9",arrowsize=.7];
+ UI [label="React UI\nRole-based screens"];
+ API [label="ASP.NET REST Endpoints\nAuthorization filters"];
+ Repository [label="EF Repository\nCase queries"];
+ AI [label="AI Decision Service\nExternal + heuristic fallback"];
+ Factory [label="Matching Strategy Factory\nFull quantity / Partial shortage"];
+ Workflow [label="Case, inventory, shelter, volunteer\nBusiness workflows"];
+ Outbox [label="Transactional outbox\nBackground worker"];
+ DB [label="SQL Server\nEF Core DbContext",fillcolor="#f8edd8"];
+ Services [label="External services\nAI • Nominatim • SMTP",fillcolor="#f9e7e9"];
+ UI->API;API->{Repository AI Factory Workflow};Repository->DB;Workflow->DB;AI->Services;Factory->Workflow;Workflow->Outbox;Outbox->DB;Outbox->Services;API->Services;
+}

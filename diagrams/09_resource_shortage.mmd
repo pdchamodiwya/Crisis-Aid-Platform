@@ -1,0 +1,18 @@
+sequenceDiagram
+    actor Logistics
+    participant API as Resource API
+    participant SQL as SQL Server
+    participant Outbox as Notification Outbox
+    Logistics->>API: POST /api/resources/allocate
+    API->>SQL: Begin SERIALIZABLE transaction
+    API->>SQL: Check human approval and stock
+    alt Enough suitable stock
+      API->>SQL: Decrement stock + reserve + audit
+      API->>SQL: Write outbox event key
+      SQL-->>API: Commit
+      API-->>Logistics: 200 reservation
+      Outbox->>SQL: Read pending event
+      Outbox-->>Outbox: SMTP attempt or in-app-only
+    else Shortage or conflict
+      API-->>Logistics: 409 Conflict + reason
+    end

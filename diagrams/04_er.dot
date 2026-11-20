@@ -1,0 +1,22 @@
+digraph ER {
+ graph [label="Relational ER Diagram • Key Tables",fontname="DejaVu Sans",labelloc=t,fontsize=22,ranksep=.8,nodesep=.5,pad=.3];
+ node [shape=record,style="rounded,filled",fillcolor="#f1f6fa",color="#a4becd",fontname="DejaVu Sans",fontsize=10];edge [color="#4e8092",arrowhead=vee,fontsize=10];
+ org [label="{Organisations|PK Id\lName\lType\l}"];
+ users [label="{Users|PK Id\lEmail [UNIQUE]\lFK OrganisationId\lRole\l}"];
+ crises [label="{Crises|PK Id\lName\lStatus\l}"];
+ req [label="{Requests|PK Id\lFK CitizenId\lFK CrisisId\lStatus\l}",fillcolor="#dbf2e9"];
+ rec [label="{AiRecommendations|PK Id\lFK RequestId\lPriority\lReviewStatus\l}"];
+ hist [label="{RequestHistories|PK Id\lFK RequestId\lActorId\l}"];
+ stock [label="{Resources|PK Id\lCategory\lAvailableQuantity\l}"];
+ alloc [label="{ResourceAllocations|PK Id\lFK RequestId\lFK ResourceId\lQuantity\l}"];
+ shelter [label="{Shelters|PK Id\lCapacity\lOccupancy\l}"];
+ spot [label="{ShelterAllocations|PK Id\lFK ShelterId\lFK RequestId\l}"];
+ vol [label="{Volunteers|PK Id\lFK UserId\lVerified\l}"];
+ task [label="{VolunteerTasks|PK Id\lFK VolunteerId\lFK RequestId?\l}"];
+ campaign [label="{Campaigns|PK Id\lFK CrisisId\l}"];
+ donor [label="{Donations|PK Id\lFK CampaignId\lFK DonorId\l}"];
+ notices [label="{Notifications / Outbox|PK Id\lFK RecipientId\lEventKey [UNIQUE]\l}"];
+ audit [label="{Audits|PK Id\lEntityType\lEntityId\lActorId\l}"];
+ org->users; users->req; crises->req; req->{rec hist alloc spot task}; stock->alloc; shelter->spot; users->vol; vol->task;
+ crises->campaign; campaign->donor; users->donor;users->notices;users->audit;
+}

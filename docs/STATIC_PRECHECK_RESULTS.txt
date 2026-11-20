@@ -1,0 +1,9 @@
+PASS: 20 required project artifacts exist
+PASS: npm, API settings and Postman JSON parse
+PASS: C# project XML parses
+PASS: Graphviz diagram sources parse
+PASS: 10 report chapters; 3103 words (includes front matter and captions)
+PASS: 17-page report PDF; 10 slides
+PASS: DOCX package integrity
+PASS: architecture/source presence checks (not compilation)
+NOT RUN: .NET compilation/xUnit, npm build, API/SQL integration, live browser UI

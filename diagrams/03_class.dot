@@ -1,0 +1,22 @@
+digraph Classes {
+ graph [label="Core Domain Class Diagram",fontname="DejaVu Sans",fontsize=21,labelloc=t,ranksep=.65,nodesep=.4,pad=.3];
+ node [shape=record,style="rounded,filled",fillcolor="#eff5f9",color="#89aabd",fontname="DejaVu Sans",fontsize=10,margin=".16,.12"];
+ edge [arrowhead=empty,color="#5a8198",fontsize=10];
+ user [label="{UserAccount|Id: Guid\lEmail: string\lRole: string\lOrganisationId: Guid?\l}"];
+ crisis [label="{CrisisEvent|Id: Guid\lType: string\lStatus: string\l}"];
+ request [label="{AssistanceRequest|Id: Guid\lCitizenId: Guid\lCrisisId: Guid\lCategory: string\lUrgency: string\lStatus: string\l}",fillcolor="#e0f6ef"];
+ decision [label="{AiRecommendation|Priority: int\lConfidence: double\lReviewStatus: string\lReviewedBy: Guid?\l}"];
+ resource [label="{ResourceItem|Category: string\lAvailableQuantity: int\lAccessible: bool\l}"];
+ reservation [label="{ResourceAllocation|Quantity: int\lApprovedBy: Guid\lStatus: string\l}"];
+ shelter [label="{Shelter|Capacity: int\lOccupancy: int\lAccessible: bool\l}"];
+ place [label="{ShelterAllocation|PeopleCount: int\lApprovedBy: Guid\l}"];
+ volunteer [label="{VolunteerProfile|Skills: string\lAvailable: bool\lVerified: bool\l}"];
+ task [label="{VolunteerTask|Status: string\lRequiredSkill: string\l}"];
+ audit [label="{AuditEvent|EntityType: string\lEventType: string\lActorId: Guid?\lAt: DateTime\l}"];
+ user->request [label="submits 1..*"];crisis->request [label="contains 1..*"];
+ request->decision [label="assessments 0..*"];request->reservation [label="allocations 0..*"];
+ resource->reservation [label="stock reserved"];request->place [label="placement 0..1"];
+ shelter->place [label="holds placements"];user->volunteer [label="profile 0..1"];
+ volunteer->task [label="assigned 0..*"];request->task [label="linked cases 0..*"];
+ user->audit [label="actor"];
+}

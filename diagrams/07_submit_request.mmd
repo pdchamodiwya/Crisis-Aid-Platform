@@ -1,0 +1,12 @@
+sequenceDiagram
+    actor Citizen
+    participant Web as React Portal
+    participant API as ASP.NET Web API
+    participant DB as SQL Server
+    Citizen->>Web: Complete assistance form + map pin
+    Web->>API: POST /api/requests (JWT)
+    API->>API: Validate identity, crisis & inputs
+    API->>DB: Insert Request, History, Audit
+    DB-->>API: Commit
+    API-->>Web: 201 Created + case identifier
+    Web-->>Citizen: Receipt and Submitted status

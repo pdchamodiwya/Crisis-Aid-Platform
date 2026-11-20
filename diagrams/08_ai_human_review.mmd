@@ -1,0 +1,21 @@
+sequenceDiagram
+    actor Coordinator
+    participant API as Case API
+    participant AI as AI Decision Service
+    participant Remote as External AI (optional)
+    participant DB as SQL Server
+    Coordinator->>API: POST /requests/{id}/assess
+    API->>AI: Evaluate request
+    opt AI provider configured
+      AI->>Remote: De-identified request features
+      alt Provider responds
+        Remote-->>AI: Category, priority, confidence
+      else Provider fails/timeout
+        AI->>AI: Heuristic fallback
+      end
+    end
+    AI-->>API: Recommendation + rationale
+    API->>DB: Save pending review + audit
+    Coordinator->>API: POST /requests/{id}/review
+    API->>DB: Save decision, actor, reason, time
+    API-->>Coordinator: Approved / Modified / Rejected / Deferred

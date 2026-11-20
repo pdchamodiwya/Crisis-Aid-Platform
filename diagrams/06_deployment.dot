@@ -1,0 +1,15 @@
+digraph Deployment {
+ graph [label="Local Deployment Diagram (Coursework Demo)",fontname="DejaVu Sans",labelloc=t,fontsize=21,ranksep=.9,pad=.3];
+ node [shape=box,style="rounded,filled",fontname="DejaVu Sans",fontsize=12,margin=".2,.15",color="#96bac3",fillcolor="#e8f3f7"];
+ edge [color="#628e9e",fontsize=10];
+ browser [label="Student Browser\nlocalhost:5173"];
+ react [label="Vite React Dev Server\nport 5173",fillcolor="#e0f4eb"];
+ api [label="ASP.NET Core Container\nlocalhost:8080"];
+ sql [label="SQL Server 2022 Container\nlocalhost:14333 → 1433",fillcolor="#f5e7cf"];
+ volume [label="Docker Volume\nsql_data",fillcolor="#f5e7cf"];
+ ext [label="External AI / Geocode / SMTP\nOptional internet integrations",fillcolor="#fce9e7"];
+ browser->react [label="HTTP demo"];
+ react->api [label="/api reverse proxy"];
+ api->sql [label="EF Core / TDS"];
+ sql->volume;api->ext [label="timeouts / fallback"];
+}

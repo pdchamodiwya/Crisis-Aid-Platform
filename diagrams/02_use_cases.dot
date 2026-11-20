@@ -1,0 +1,32 @@
+digraph UseCases {
+ graph [label="Use Case Diagram • Principal Actors and Operations", labelloc=t, fontsize=21, fontname="DejaVu Sans", ranksep=.6, nodesep=.4, bgcolor=white, pad=.3];
+ node [fontname="DejaVu Sans",fontsize=11]; edge [color="#7593a5",dir=none];
+ subgraph cluster_actors{label="Actors";style="rounded,filled";color="#e6f2f5";fillcolor="#f8fbfd";
+ citizen [label="Affected Person",shape=box,style="rounded,filled",fillcolor="#e2f4ec"];
+ coordinator [label="Emergency Coordinator",shape=box,style="rounded,filled",fillcolor="#e2f4ec"];
+ logistics [label="Logistics Manager",shape=box,style="rounded,filled",fillcolor="#e2f4ec"];
+ shelterstaff [label="Shelter Administrator",shape=box,style="rounded,filled",fillcolor="#e2f4ec"];
+ volunteer [label="Volunteer / Coordinator",shape=box,style="rounded,filled",fillcolor="#e2f4ec"];
+ donor [label="Donor / Funding Officer",shape=box,style="rounded,filled",fillcolor="#e2f4ec"];
+ admin [label="System Administrator",shape=box,style="rounded,filled",fillcolor="#e2f4ec"];
+ }
+ subgraph cluster_cases {label="Humanitarian CrisisAid System";style=rounded;color="#92b3c4";
+ node [shape=ellipse,style=filled,fillcolor="#e8f1fb",color="#84abc0"];
+ submit [label="Submit & track request"];
+ review [label="Generate AI advice;\napprove / override"];
+ allocate [label="Match & reserve aid"];
+ place [label="Manage shelter occupancy"];
+ assign [label="Verify & assign volunteers"];
+ pledge [label="Record donation pledge"];
+ notify [label="Receive notifications"];
+ audit [label="Review audit trail & KPIs"];
+ role [label="Manage access roles"];
+ }
+ citizen->{submit notify};
+ coordinator->{review audit};
+ logistics->allocate;
+ shelterstaff->place;
+ volunteer->assign;
+ donor->pledge;
+ admin->{role audit};
+}

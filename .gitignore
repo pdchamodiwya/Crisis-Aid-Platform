@@ -1,0 +1,10 @@
+.env
+**/node_modules/
+**/bin/
+**/obj/
+**/dist/
+**/coverage/
+.vs/
+*.user
+*.suo
+.DS_Store

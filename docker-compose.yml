@@ -1,0 +1,43 @@
+services:
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: ${SA_PASSWORD:?set SA_PASSWORD in .env}
+    ports: ["14333:1433"]
+    volumes: ["sql_data:/var/opt/mssql"]
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/1433' 2>/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+  api:
+    build: ./backend/CrisisAid.Api
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_HTTP_PORTS: 8080
+      ConnectionStrings__Default: "Server=sqlserver,1433;Database=CrisisAid;User Id=sa;Password=${SA_PASSWORD};TrustServerCertificate=True;Encrypt=True;"
+      Jwt__Key: ${JWT_KEY:?set JWT_KEY}
+      Jwt__Issuer: CrisisAid
+      Jwt__Audience: CrisisAid.Web
+      Demo__Enabled: "true"
+      Demo__Password: ${DEMO_PASSWORD:?set DEMO_PASSWORD}
+      Cors__Origins: ${FRONTEND_URL:-http://localhost:5173}
+      AI__ApiKey: ${AI_API_KEY:-}
+      AI__Model: ${AI_MODEL:-}
+      AI__Endpoint: ${AI_ENDPOINT:-}
+      Google__ClientId: ${GOOGLE_CLIENT_ID:-}
+      Google__ClientSecret: ${GOOGLE_CLIENT_SECRET:-}
+      Google__RedirectUri: http://localhost:8080/api/auth/google/callback
+      Google__FrontendUrl: ${FRONTEND_URL:-http://localhost:5173}
+      SMTP__Host: ${SMTP_HOST:-}
+      SMTP__Port: ${SMTP_PORT:-587}
+      SMTP__From: ${SMTP_FROM:-no-reply@example.org}
+      SMTP__Username: ${SMTP_USERNAME:-}
+      SMTP__Password: ${SMTP_PASSWORD:-}
+    ports: ["8080:8080"]
+volumes:
+  sql_data:

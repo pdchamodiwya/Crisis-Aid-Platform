@@ -1,0 +1,17 @@
+sequenceDiagram
+    actor VolunteerCoordinator
+    participant API as Volunteer API
+    participant DB as SQL Server
+    actor Volunteer
+    VolunteerCoordinator->>API: Assign task with required skill
+    API->>DB: Check verified, available, skill match
+    alt Eligible volunteer
+      API->>DB: Create task + notification + audit
+      API-->>VolunteerCoordinator: Assignment created
+      Volunteer->>API: Accept task
+      API->>DB: Status Accepted + audit
+      Volunteer->>API: Complete task
+      API->>DB: Completed; available = true
+    else Not eligible
+      API-->>VolunteerCoordinator: 409 Conflict
+    end
