@@ -31,6 +31,113 @@ public static class ExtendedModules
         ALTER TABLE dbo.Requests
         ADD Unit nvarchar(40) NOT NULL
             CONSTRAINT DF_Requests_Unit DEFAULT N'unit-unspecified' WITH VALUES;
+
+        -- Member 03: Resource, Logistics & Partner Coordination schema extensions
+        IF COL_LENGTH(N'dbo.Resources', N'TotalQuantity') IS NULL
+            ALTER TABLE dbo.Resources ADD TotalQuantity int NOT NULL DEFAULT 0;
+        IF COL_LENGTH(N'dbo.Resources', N'ReservedQuantity') IS NULL
+            ALTER TABLE dbo.Resources ADD ReservedQuantity int NOT NULL DEFAULT 0;
+        IF COL_LENGTH(N'dbo.Resources', N'Description') IS NULL
+            ALTER TABLE dbo.Resources ADD Description nvarchar(max) NOT NULL DEFAULT '';
+        IF COL_LENGTH(N'dbo.Resources', N'Condition') IS NULL
+            ALTER TABLE dbo.Resources ADD Condition nvarchar(max) NOT NULL DEFAULT 'Good';
+        IF COL_LENGTH(N'dbo.Resources', N'BatchNumber') IS NULL
+            ALTER TABLE dbo.Resources ADD BatchNumber nvarchar(max) NOT NULL DEFAULT '';
+        IF COL_LENGTH(N'dbo.Resources', N'IsActive') IS NULL
+            ALTER TABLE dbo.Resources ADD IsActive bit NOT NULL DEFAULT 1;
+        IF COL_LENGTH(N'dbo.Resources', N'CreatedAt') IS NULL
+            ALTER TABLE dbo.Resources ADD CreatedAt datetime2 NOT NULL DEFAULT SYSUTCDATETIME();
+        IF COL_LENGTH(N'dbo.Resources', N'UpdatedAt') IS NULL
+            ALTER TABLE dbo.Resources ADD UpdatedAt datetime2 NOT NULL DEFAULT SYSUTCDATETIME();
+
+        IF COL_LENGTH(N'dbo.ResourceAllocations', N'QuantityRequested') IS NULL
+            ALTER TABLE dbo.ResourceAllocations ADD QuantityRequested int NOT NULL DEFAULT 0;
+        IF COL_LENGTH(N'dbo.ResourceAllocations', N'QuantityAllocated') IS NULL
+            ALTER TABLE dbo.ResourceAllocations ADD QuantityAllocated int NOT NULL DEFAULT 0;
+        IF COL_LENGTH(N'dbo.ResourceAllocations', N'QuantityRemaining') IS NULL
+            ALTER TABLE dbo.ResourceAllocations ADD QuantityRemaining int NOT NULL DEFAULT 0;
+        IF COL_LENGTH(N'dbo.ResourceAllocations', N'Notes') IS NULL
+            ALTER TABLE dbo.ResourceAllocations ADD Notes nvarchar(max) NOT NULL DEFAULT '';
+
+        IF OBJECT_ID(N'dbo.StockMovements', N'U') IS NULL
+        CREATE TABLE dbo.StockMovements (
+            Id uniqueidentifier NOT NULL PRIMARY KEY,
+            ResourceId uniqueidentifier NOT NULL,
+            MovementType nvarchar(max) NOT NULL,
+            Quantity int NOT NULL,
+            ReferenceId uniqueidentifier NULL,
+            Notes nvarchar(max) NOT NULL,
+            PerformedBy uniqueidentifier NULL,
+            CreatedAt datetime2 NOT NULL
+        );
+
+        IF OBJECT_ID(N'dbo.Dispatches', N'U') IS NULL
+        CREATE TABLE dbo.Dispatches (
+            Id uniqueidentifier NOT NULL PRIMARY KEY,
+            AllocationId uniqueidentifier NOT NULL,
+            VehicleId nvarchar(max) NOT NULL,
+            AssignedDriver nvarchar(max) NOT NULL,
+            AssignedVolunteerId uniqueidentifier NULL,
+            DepartureLocation nvarchar(max) NOT NULL,
+            Destination nvarchar(max) NOT NULL,
+            DepartureTime datetime2 NULL,
+            EstimatedArrivalTime datetime2 NULL,
+            ActualArrivalTime datetime2 NULL,
+            DispatchedQuantity int NOT NULL,
+            DeliveredQuantity int NOT NULL,
+            DeliveryStatus nvarchar(max) NOT NULL,
+            DeliveryNotes nvarchar(max) NOT NULL,
+            CreatedAt datetime2 NOT NULL,
+            UpdatedAt datetime2 NOT NULL
+        );
+
+        IF OBJECT_ID(N'dbo.PartnerRequests', N'U') IS NULL
+        CREATE TABLE dbo.PartnerRequests (
+            Id uniqueidentifier NOT NULL PRIMARY KEY,
+            TargetOrganisationId uniqueidentifier NOT NULL,
+            RequestedByOrganisationId uniqueidentifier NOT NULL,
+            CreatedBy uniqueidentifier NOT NULL,
+            Category nvarchar(max) NOT NULL,
+            Quantity int NOT NULL,
+            Urgency nvarchar(max) NOT NULL,
+            Notes nvarchar(max) NOT NULL,
+            Status nvarchar(max) NOT NULL,
+            CreatedAt datetime2 NOT NULL
+        );
+
+        IF OBJECT_ID(N'dbo.StockTransfers', N'U') IS NULL
+        CREATE TABLE dbo.StockTransfers (
+            Id uniqueidentifier NOT NULL PRIMARY KEY,
+            PartnerOfferId uniqueidentifier NULL,
+            FromOrganisationId uniqueidentifier NOT NULL,
+            ToOrganisationId uniqueidentifier NOT NULL,
+            Category nvarchar(max) NOT NULL,
+            ResourceName nvarchar(max) NOT NULL,
+            Quantity int NOT NULL,
+            Status nvarchar(max) NOT NULL,
+            SentAt datetime2 NULL,
+            ReceivedAt datetime2 NULL,
+            ReceivedBy uniqueidentifier NULL,
+            DiscrepancyNotes nvarchar(max) NOT NULL,
+            TargetResourceId uniqueidentifier NULL,
+            CreatedAt datetime2 NOT NULL
+        );
+
+        IF OBJECT_ID(N'dbo.DeliveryVerifications', N'U') IS NULL
+        CREATE TABLE dbo.DeliveryVerifications (
+            Id uniqueidentifier NOT NULL PRIMARY KEY,
+            DispatchId uniqueidentifier NOT NULL,
+            VerificationToken nvarchar(256) NOT NULL,
+            ShortCode nvarchar(64) NOT NULL,
+            QrCodeSvg nvarchar(max) NOT NULL,
+            Status nvarchar(max) NOT NULL,
+            ExpiresAt datetime2 NOT NULL,
+            VerifiedAt datetime2 NULL,
+            VerifiedBy uniqueidentifier NULL,
+            DeliveredQuantityConfirmed int NOT NULL,
+            RecipientNotes nvarchar(max) NOT NULL,
+            CreatedAt datetime2 NOT NULL
+        );
         """;
         await db.Database.ExecuteSqlRawAsync(sql);
     }

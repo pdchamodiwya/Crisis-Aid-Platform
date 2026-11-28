@@ -524,6 +524,167 @@
           }
         }
       ]
+    },
+    {
+      "name": "05 Member 03 - Resource, Logistics and Partner Coordination",
+      "item": [
+        {
+          "name": "Logistics Dashboard Metrics",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/logistics/dashboard", "host": ["{{baseUrl}}"], "path": ["api", "logistics", "dashboard"] }
+          }
+        },
+        {
+          "name": "Create Resource with Batch & Condition",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Emergency Tarpaulins\",\n  \"category\": \"Shelter materials\",\n  \"unit\": \"sheets\",\n  \"availableQuantity\": 50,\n  \"area\": \"Colombo Depot\",\n  \"latitude\": 6.9271,\n  \"longitude\": 79.8612,\n  \"accessible\": true,\n  \"condition\": \"Good\",\n  \"batchNumber\": \"BATCH-TARP-01\",\n  \"description\": \"Reinforced waterproof shelter sheets\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/resources/create", "host": ["{{baseUrl}}"], "path": ["api", "resources", "create"] }
+          }
+        },
+        {
+          "name": "Replenish Stock",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"quantity\": 25,\n  \"notes\": \"UNHCR airlift donation intake\",\n  \"batchNumber\": \"BATCH-AIRLIFT-22\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/resources/{{resourceId}}/replenish", "host": ["{{baseUrl}}"], "path": ["api", "resources", "{{resourceId}}", "replenish"] }
+          }
+        },
+        {
+          "name": "Adjust Stock & Record Movement",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"newQuantity\": 65,\n  \"movementType\": \"Stock Damaged\",\n  \"reason\": \"Water damage to outer packaging during storm\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/resources/{{resourceId}}/adjust", "host": ["{{baseUrl}}"], "path": ["api", "resources", "{{resourceId}}", "adjust"] }
+          }
+        },
+        {
+          "name": "Stock Movements Audit Log",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/resources/movements", "host": ["{{baseUrl}}"], "path": ["api", "resources", "movements"] }
+          }
+        },
+        {
+          "name": "Shortage Analysis across Competing Requests",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/resources/shortages/analysis", "host": ["{{baseUrl}}"], "path": ["api", "resources", "shortages", "analysis"] }
+          }
+        },
+        {
+          "name": "Generate Priority Shortage Plan",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"category\": \"Food\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/resources/shortages/plan", "host": ["{{baseUrl}}"], "path": ["api", "resources", "shortages", "plan"] }
+          }
+        },
+        {
+          "name": "Dispatch Allocation & Generate QR",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"allocationId\": \"{{allocationId}}\",\n  \"vehicleId\": \"WP-CAD-5541\",\n  \"assignedDriver\": \"Nimal Bandara\",\n  \"departureLocation\": \"Colombo Main Depot\",\n  \"destination\": \"Camp Delta Community Centre\",\n  \"dispatchedQuantity\": 10,\n  \"notes\": \"Immediate transit relief\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/allocations/{{allocationId}}/dispatch", "host": ["{{baseUrl}}"], "path": ["api", "allocations", "{{allocationId}}", "dispatch"] }
+          }
+        },
+        {
+          "name": "List Field Dispatches",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/dispatches", "host": ["{{baseUrl}}"], "path": ["api", "dispatches"] }
+          }
+        },
+        {
+          "name": "Get Dispatch QR Code & Verification Token",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/dispatches/{{dispatchId}}/qr", "host": ["{{baseUrl}}"], "path": ["api", "dispatches", "{{dispatchId}}", "qr"] }
+          }
+        },
+        {
+          "name": "Lookup Delivery Verification by Token/Code (Public)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/delivery-verify/{{verificationToken}}", "host": ["{{baseUrl}}"], "path": ["api", "delivery-verify", "{{verificationToken}}"] }
+          }
+        },
+        {
+          "name": "Confirm Delivery via QR / Shortcode",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"deliveredQuantity\": 10,\n  \"notes\": \"Signed off by community elder at site\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/delivery-verify/{{verificationToken}}/confirm", "host": ["{{baseUrl}}"], "path": ["api", "delivery-verify", "{{verificationToken}}", "confirm"] }
+          }
+        },
+        {
+          "name": "Requisition Supplies from Partner NGO",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"targetOrganisationId\": \"{{partnerOrgId}}\",\n  \"category\": \"Medicine\",\n  \"quantity\": 50,\n  \"urgency\": \"High\",\n  \"notes\": \"Urgent replenishment needed due to flood surge\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/partners/requests", "host": ["{{baseUrl}}"], "path": ["api", "partners", "requests"] }
+          }
+        },
+        {
+          "name": "Initiate Inter-Agency Stock Transfer",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"toOrganisationId\": \"{{partnerOrgId}}\",\n  \"category\": \"Food\",\n  \"resourceName\": \"Infant Formula Milk Cans\",\n  \"quantity\": 30\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/partners/transfers", "host": ["{{baseUrl}}"], "path": ["api", "partners", "transfers"] }
+          }
+        },
+        {
+          "name": "Receive Partner Stock Transfer into Inventory",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"confirmedQuantity\": 30,\n  \"discrepancyNotes\": \"Good condition, all seals verified\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/partners/transfers/{{transferId}}/receive", "host": ["{{baseUrl}}"], "path": ["api", "partners", "transfers", "{{transferId}}", "receive"] }
+          }
+        }
+      ]
     }
   ]
 }

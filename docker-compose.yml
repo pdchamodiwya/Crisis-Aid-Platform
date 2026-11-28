@@ -19,7 +19,7 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_HTTP_PORTS: 8080
-      ConnectionStrings__Default: "Server=sqlserver,1433;Database=CrisisAid;User Id=sa;Password=${SA_PASSWORD};TrustServerCertificate=True;Encrypt=True;"
+      ConnectionStrings__Default: "Server=sqlserver,1433;Database=${DB_NAME:-CrisisAid};User Id=sa;Password=${SA_PASSWORD};TrustServerCertificate=True;Encrypt=True;"
       Jwt__Key: ${JWT_KEY:?set JWT_KEY}
       Jwt__Issuer: CrisisAid
       Jwt__Audience: CrisisAid.Web

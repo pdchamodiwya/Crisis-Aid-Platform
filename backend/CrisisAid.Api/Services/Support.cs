@@ -1,3 +1,4 @@
+
 using System.Security.Claims;
 using System.Text.Json;
 using CrisisAid.Api.Data;
@@ -14,20 +15,23 @@ public static class Access
     public static bool CanRead(ClaimsPrincipal principal, AssistanceRequest req) => Staff(principal) || req.CitizenId == UserId(principal);
     public static bool Coordinates(double lat, double lon) => lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180;
 }
+
 public static class TraceLog
 {
     public static void Add(AidDbContext db, string entity, Guid id, string action, Guid? actor, object? details = null) =>
         db.Audits.Add(new AuditEvent { EntityType = entity, EntityId = id, EventType = action, ActorId = actor,
             DetailJson = JsonSerializer.Serialize(details ?? new { }) });
+
     public static void History(AidDbContext db, Guid req, Guid? actor, string action, string notes) =>
         db.RequestHistories.Add(new RequestHistory { RequestId = req, ActorId = actor, Action = action, Notes = notes });
+
     public static void Queue(AidDbContext db, Guid recipient, string key, string title, string message, string language = "en")
     {
-        // Caller must use a deterministic key for each logical event. Unique DB index prevents duplicates.
         db.Notifications.Add(new Notification { RecipientId = recipient, Title = title, Message = message, Language = language });
         db.Outbox.Add(new OutboxMessage { RecipientId = recipient, EventKey = key, Subject = title, Body = message });
     }
 }
+
 public static class Distances
 {
     public static double Km(double a, double b, double c, double d)
@@ -39,17 +43,90 @@ public static class Distances
         return 2 * r * Math.Asin(Math.Min(1, Math.Sqrt(x)));
     }
 }
+
+public class ResourceMatchResult
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; } = "";
+    public string Category { get; set; } = "";
+    public int AvailableQuantity { get; set; }
+    public int TotalQuantity { get; set; }
+    public int ReservedQuantity { get; set; }
+    public string Unit { get; set; } = "";
+    public string Area { get; set; } = "";
+    public string Condition { get; set; } = "";
+    public string BatchNumber { get; set; } = "";
+    public double DistanceKm { get; set; }
+    public bool AvailableForFullRequest { get; set; }
+    public int AllocatableQuantity { get; set; }
+    public int RemainingUnmetDemand { get; set; }
+    public double Score { get; set; }
+    public string Rationale { get; set; } = "";
+}
+
 public static class MatchEngine
 {
     public static IEnumerable<object> ResourcesFor(AssistanceRequest req, IEnumerable<ResourceItem> resources) =>
-        resources.Where(r => r.Category.Equals(req.Category, StringComparison.OrdinalIgnoreCase) &&
+        resources.Where(r => r.IsActive && r.Category.Equals(req.Category, StringComparison.OrdinalIgnoreCase) &&
             r.AvailableQuantity > 0 && (!req.AccessibilityNeeded || r.Accessible) &&
-            (r.ExpiresAt == null || r.ExpiresAt > DateTime.UtcNow))
-        .Select(r => new { r.Id, r.Name, r.AvailableQuantity, r.Area,
-            DistanceKm = Math.Round(Distances.Km(req.Latitude, req.Longitude, r.Latitude, r.Longitude), 1),
-            AvailableForFullRequest = r.AvailableQuantity >= req.RequestedQuantity,
-            Score = (r.AvailableQuantity >= req.RequestedQuantity ? 40 : 5) +
+            (r.ExpiresAt == null || r.ExpiresAt > DateTime.UtcNow) &&
+            !r.Condition.Equals("Damaged", StringComparison.OrdinalIgnoreCase) &&
+            !r.Condition.Equals("Expired", StringComparison.OrdinalIgnoreCase))
+        .Select(r => {
+            double distanceKm = Math.Round(Distances.Km(req.Latitude, req.Longitude, r.Latitude, r.Longitude), 1);
+            bool isFull = r.AvailableQuantity >= req.RequestedQuantity;
+            int allocatable = Math.Min(r.AvailableQuantity, req.RequestedQuantity);
+            int unmet = Math.Max(0, req.RequestedQuantity - r.AvailableQuantity);
+
+            int conditionScore = r.Condition.ToLowerInvariant() switch {
+                "good" or "new" or "excellent" => 15,
+                "fair" => 5,
+                _ => 0
+            };
+
+            int expiryScore = 0;
+            if (r.ExpiresAt.HasValue)
+            {
+                var daysLeft = (r.ExpiresAt.Value - DateTime.UtcNow).TotalDays;
+                if (daysLeft > 30) expiryScore = 10;
+                else if (daysLeft > 7) expiryScore = 5;
+            }
+            else expiryScore = 10;
+
+            double score = (isFull ? 45 : 15) +
                 (req.AccessibilityNeeded && r.Accessible ? 15 : 0) +
-                Math.Max(0, 30 - Distances.Km(req.Latitude, req.Longitude, r.Latitude, r.Longitude)) })
-        .OrderByDescending(r => r.Score).Cast<object>();
+                conditionScore + expiryScore +
+                Math.Max(0, 30 - distanceKm);
+
+            var reasons = new List<string>();
+            if (isFull) reasons.Add($"Full demand coverable ({allocatable} of {req.RequestedQuantity} {r.Unit})");
+            else reasons.Add($"Partial coverable ({allocatable} of {req.RequestedQuantity} {r.Unit}, unmet: {unmet})");
+            reasons.Add($"Proximity {distanceKm} km");
+            if (r.Accessible && req.AccessibilityNeeded) reasons.Add("Accessible verified");
+            reasons.Add($"Condition: {r.Condition}");
+            if (r.ExpiresAt.HasValue) reasons.Add($"Valid until {r.ExpiresAt.Value:yyyy-MM-dd}");
+
+            string rationale = string.Join("; ", reasons) + ".";
+
+            return new ResourceMatchResult
+            {
+                Id = r.Id,
+                Name = r.Name,
+                Category = r.Category,
+                AvailableQuantity = r.AvailableQuantity,
+                TotalQuantity = r.TotalQuantity,
+                ReservedQuantity = r.ReservedQuantity,
+                Unit = r.Unit,
+                Area = r.Area,
+                Condition = r.Condition,
+                BatchNumber = r.BatchNumber,
+                DistanceKm = distanceKm,
+                AvailableForFullRequest = isFull,
+                AllocatableQuantity = allocatable,
+                RemainingUnmetDemand = unmet,
+                Score = Math.Round(score, 1),
+                Rationale = rationale
+            };
+        })
+        .OrderByDescending(r => ((ResourceMatchResult)r).Score);
 }
