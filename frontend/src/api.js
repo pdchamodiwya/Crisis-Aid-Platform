@@ -19,6 +19,7 @@ export async function api(path, options = {}) {
 }
 export const get = (path) => api(path);
 export const post = (path, obj) => api(path, { method: 'POST', body: JSON.stringify(obj) });
+export const recommendShelters = (requestId) => post('/shelters/recommendations', { requestId });
 export const patch = (path, obj) => api(path, { method: 'PATCH', body: JSON.stringify(obj) });
 export const put = (path, obj) => api(path, { method: 'PUT', body: JSON.stringify(obj) });
 export function formatDate(value) { return value ? new Date(value).toLocaleString() : '-'; }
