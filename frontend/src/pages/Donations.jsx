@@ -3,6 +3,7 @@ import { useState } from 'react';
 import LegacyDonations from './LegacyDonations';
 import './donations/donations.css';
 import MakeDonation from './donations/MakeDonation';
+import DonationRegister from './donations/DonationRegister';
 
 export default function Donations({ user }) {
   const [activeTab, setActiveTab] = useState('campaigns');
@@ -11,20 +12,20 @@ export default function Donations({ user }) {
     ['FundingOfficer', 'SystemAdministrator']
       .includes(user?.role);
 
+        (isFundingOfficer ? [
+  { id: 'manage', label: 'Manage Campaigns' }
+] : [])
+
   const isDonor =
     ['Donor', 'Citizen'].includes(user?.role);
+    (isDonor ? [
+  { id: 'donate', label: 'Make a Donation' }
+] : [])
 
   const tabs = [
     { id: 'campaigns', label: 'Campaigns' }
   ];
-
-  (isFundingOfficer ? [
-  { id: 'manage', label: 'Manage Campaigns' }
-] : [])
-
-(isDonor ? [
-  { id: 'donate', label: 'Make a Donation' }
-] : [])
+  [{ id: 'history', label: 'Donation History' }]
 
 
   return (
@@ -52,6 +53,9 @@ export default function Donations({ user }) {
 
         {activeTab === 'donate' && isDonor &&
   <MakeDonation />}
+
+  {activeTab === 'history' &&
+  <DonationRegister user={user} />}
     </section>
   );
   
