@@ -340,6 +340,102 @@ public static class DonationEndpoints
                 Roles.Donor,
                 Roles.Citizen));
 
+
+                api.MapGet("/campaigns/{id:guid}/summary", async (
+    Guid id,
+    AidDbContext db) =>
+{
+    var campaign = await db.Campaigns.FindAsync(id);
+
+    if (campaign == null)
+        return Results.NotFound();
+
+    var monetary = db.Donations.Where(d =>
+        d.CampaignId == id &&
+        d.Kind == "Monetary");
+
+    var pledged = await monetary
+        .Where(d => d.Status == "PledgeRecorded")
+        .SumAsync(d => (decimal?)d.Amount) ?? 0;
+
+    var received = await monetary
+        .Where(d => d.Status == "Confirmed")
+        .SumAsync(d => (decimal?)d.Amount) ?? 0;
+
+    var approvedAllocations =
+        from a in db.DonationAllocations
+        join d in monetary
+            on a.DonationId equals d.Id
+        where a.Status == "Approved" &&
+              d.Status == "Confirmed"
+        select a;
+
+    var allocated = await approvedAllocations
+        .SumAsync(a => (decimal?)a.Amount) ?? 0;
+
+    var expenseQuery =
+        from e in db.CampaignExpenditures
+        join a in approvedAllocations
+            on e.AllocationId equals a.Id
+        select new { e.Amount, a.Category };
+
+    var spent = await expenseQuery
+        .SumAsync(e => (decimal?)e.Amount) ?? 0;
+
+    var breakdown = await expenseQuery
+        .GroupBy(e => e.Category)
+        .Select(g => new
+        {
+            category = g.Key,
+            amount = g.Sum(e => e.Amount)
+        })
+        .ToListAsync();
+
+    return Results.Ok(new
+    {
+        campaign.Id,
+        campaign.Name,
+        campaign.Currency,
+        campaign.TargetAmount,
+        pledged,
+        received,
+        allocated,
+        spent,
+        unallocated = received - allocated,
+        unspent = received - spent,
+        progress = campaign.TargetAmount > 0
+            ? received / campaign.TargetAmount * 100
+            : 0,
+        breakdown
+    });
+});
+
+api.MapGet("/donations/report/me", async (
+    HttpContext ctx,
+    AidDbContext db) =>
+{
+    var userId = Access.UserId(ctx.User);
+
+    var rows = await (
+        from d in db.Donations
+        join c in db.Campaigns
+            on d.CampaignId equals c.Id
+        where d.DonorId == userId
+        select new
+        {
+            d.Id,
+            d.Amount,
+            d.Currency,
+            d.Kind,
+            d.Status,
+            d.At,
+            campaignName = c.Name
+        }
+    ).ToListAsync();
+
+    return Results.Ok(rows);
+});
+
         // ==========================================
         // 04 - GET DONATIONS
         // ==========================================
