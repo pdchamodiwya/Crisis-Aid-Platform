@@ -23,16 +23,18 @@ builder.Services.AddHttpClient("ai", c => c.Timeout = TimeSpan.FromSeconds(6));
 builder.Services.AddHttpClient("google-oauth", c => c.Timeout = TimeSpan.FromSeconds(15));
 builder.Services.AddHttpClient("map", c => { c.Timeout = TimeSpan.FromSeconds(5); c.DefaultRequestHeaders.UserAgent.ParseAdd("CrisisAidStudentPrototype/1.0 (coursework demo)"); });
 builder.Services.AddScoped<IAiDecisionService, AiDecisionService>();
+builder.Services.AddSingleton<IShelterRecommendationService, ShelterRecommendationService>();
 builder.Services.AddScoped<IRequestRepository, EfRequestRepository>();
 builder.Services.AddSingleton<IResourceMatchStrategyFactory, ResourceMatchStrategyFactory>();
 builder.Services.AddRateLimiter(opts => {
     opts.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
     opts.AddPolicy("auth", ctx => RateLimitPartition.GetFixedWindowLimiter(ctx.Connection.RemoteIpAddress?.ToString() ?? "unknown", k => new FixedWindowRateLimiterOptions {
         PermitLimit = 12, Window = TimeSpan.FromMinutes(1), QueueLimit = 0, AutoReplenishment = true }));
-    opts.AddPolicy("geocode", ctx => RateLimitPartition.GetFixedWindowLimiter(ctx.Connection.RemoteIpAddress?.ToString() ?? "unknown", k => new FixedWindowRateLimiterOptions {
-        PermitLimit = 10, Window = TimeSpan.FromMinutes(1), QueueLimit = 0, AutoReplenishment = true }));
+    opts.AddPolicy("geocode", _ => RateLimitPartition.GetSlidingWindowLimiter("nominatim-provider", _ => new SlidingWindowRateLimiterOptions {
+        PermitLimit = 1, Window = TimeSpan.FromSeconds(1), SegmentsPerWindow = 4, QueueLimit = 0, AutoReplenishment = true }));
 });
 builder.Services.AddHostedService<OutboxWorker>();
+builder.Services.AddHostedService<VolunteerSafetyWorker>();
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer(o =>
 {
     o.TokenValidationParameters = new TokenValidationParameters {
@@ -72,8 +74,9 @@ app.UseHttpsRedirection();
 using (var scope = app.Services.CreateScope())
 {
     var database = scope.ServiceProvider.GetRequiredService<AidDbContext>();
-    await SeedData.InitialiseAsync(database, app.Configuration);
+    await database.Database.EnsureCreatedAsync();
     await ExtendedModules.EnsureSchemaAsync(database);
+    await SeedData.InitialiseAsync(database, app.Configuration);
 }
 
 app.MapGet("/api/health", () => Results.Ok(new { service = "CrisisAid", status = "ok", utc = DateTime.UtcNow })).AllowAnonymous();
@@ -113,6 +116,7 @@ app.MapPost("/api/auth/login", async (LoginDto input, AidDbContext db, IPassword
 
 var api = app.MapGroup("/api").RequireAuthorization();
 ExtendedModules.Map(api);
+OperationsEndpoints.Map(api);
 api.MapGet("/me", async (HttpContext ctx, AidDbContext db) => {
     var id = Access.UserId(ctx.User);
     return await db.Users.Where(x => x.Id == id).Select(x => new { x.Id, x.DisplayName, x.Email, x.Role, x.OrganisationId }).FirstOrDefaultAsync() is { } me
@@ -210,6 +214,21 @@ requests.MapPatch("/{id:guid}/status", async (Guid id, RequestStatusDto dto, Htt
         return Results.Conflict(new { error = $"Cannot move from {req.Status} to {dto.Status}" });
     var actor = Access.UserId(ctx.User); var previous = req.Status;
     req.Status = dto.Status; req.UpdatedAt = DateTime.UtcNow;
+    var shelterSupply = await db.ShelterSupplyRequests.SingleOrDefaultAsync(x => x.AssistanceRequestId == req.Id);
+    if (shelterSupply != null)
+    {
+        shelterSupply.Status = dto.Status switch
+        {
+            "Dispatched" => "Dispatched",
+            "Fulfilled" => "Delivered",
+            "Closed" => "Cancelled",
+            _ => shelterSupply.Status
+        };
+        shelterSupply.UpdatedAt = DateTime.UtcNow;
+        if (shelterSupply.Status != "Approved")
+            TraceLog.Add(db, "ShelterSupplyRequest", shelterSupply.Id, shelterSupply.Status, actor,
+                new { AssistanceRequestId = req.Id });
+    }
     TraceLog.History(db, req.Id, actor, "Status -> " + dto.Status, dto.Notes);
     TraceLog.Add(db, "AssistanceRequest", id, "StatusChanged", actor, new { previous, dto.Status, dto.Notes });
     if (dto.Status == "Fulfilled") TraceLog.Queue(db, req.CitizenId, $"request:{id}:fulfilled", "Assistance delivered", "Your assistance request has been marked fulfilled.");
@@ -256,32 +275,53 @@ resources.MapGet("/allocations", async (AidDbContext db) => await db.ResourceAll
 var shelters = api.MapGroup("/shelters");
 shelters.MapGet("/", async (AidDbContext db) => await db.Shelters.AsNoTracking().ToListAsync());
 shelters.MapPost("/", async (ShelterDto dto, HttpContext ctx, AidDbContext db) => {
-    if (dto.Capacity < 1 || !Access.Coordinates(dto.Latitude, dto.Longitude)) return Results.BadRequest();
+    if (string.IsNullOrWhiteSpace(dto.Name) || string.IsNullOrWhiteSpace(dto.Area) ||
+        dto.Capacity < 1 || !Access.Coordinates(dto.Latitude, dto.Longitude)) return Results.BadRequest();
     var shelter = new Shelter { Name = dto.Name, Area = dto.Area, Capacity = dto.Capacity,
-        Accessible = dto.Accessible, Facilities = dto.Facilities, Latitude = dto.Latitude, Longitude = dto.Longitude };
+        Accessible = dto.Accessible, Facilities = dto.Facilities, Latitude = dto.Latitude, Longitude = dto.Longitude,
+        ContactName = dto.ContactName, ContactPhone = dto.ContactPhone, ContactEmail = dto.ContactEmail,
+        OpeningHours = dto.OpeningHours, MedicalFacilities = dto.MedicalFacilities,
+        SanitationFacilities = dto.SanitationFacilities,         FoodAvailable = dto.FoodAvailable,
+        AdministratorId = Access.Role(ctx.User) == Roles.ShelterAdmin ? Access.UserId(ctx.User) : null };
     db.Shelters.Add(shelter); TraceLog.Add(db, "Shelter", shelter.Id, "Created", Access.UserId(ctx.User));
     await db.SaveChangesAsync(); return Results.Created($"/api/shelters/{shelter.Id}", shelter);
 }).RequireAuthorization(p => p.RequireRole(Roles.ShelterAdmin, Roles.Coordinator, Roles.Admin));
 shelters.MapPost("/allocate", async (AllocateShelterDto dto, HttpContext ctx, AidDbContext db) => {
     if (dto.PeopleCount < 1) return Results.BadRequest();
     await using var tx = await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable);
-    var req = await db.Requests.FindAsync(dto.RequestId); var shelter = await db.Shelters.FindAsync(dto.ShelterId);
+    var shelter = await ShelterConcurrencyLock.AcquireAsync(db, dto.ShelterId);
+    var req = await db.Requests.FindAsync(dto.RequestId);
     if (req == null || shelter == null) return Results.NotFound();
+    if (Access.Role(ctx.User) == Roles.ShelterAdmin && shelter.AdministratorId != null &&
+        shelter.AdministratorId != Access.UserId(ctx.User)) return Results.Forbid();
     if (req.Status != "Verified" && req.Status != "Assigned") return Results.Conflict(new { error = "Human approval required" });
+    var reserved = await db.ShelterAllocations.Where(x => x.ShelterId == shelter.Id && x.Status == "Reserved")
+        .SumAsync(x => (int?)x.PeopleCount) ?? 0;
     if (req.Category != "Shelter" || shelter.Status != "Open" || (req.AccessibilityNeeded && !shelter.Accessible) ||
-        dto.PeopleCount > req.PeopleAffected || dto.PeopleCount > shelter.Capacity - shelter.Occupancy)
+        dto.PeopleCount > req.PeopleAffected ||
+        !ShelterCapacity.CanReserve(shelter.Capacity, shelter.Occupancy, reserved, dto.PeopleCount))
         return Results.Conflict(new { error = "Capacity, suitability or request constraint failed" });
     if (await db.ShelterAllocations.AnyAsync(x => x.RequestId == req.Id)) return Results.Conflict(new { error = "Shelter already allocated to request" });
-    shelter.Occupancy += dto.PeopleCount; req.Status = "Assigned"; req.UpdatedAt = DateTime.UtcNow;
+    req.Status = "Assigned"; req.UpdatedAt = DateTime.UtcNow;
     var actor = Access.UserId(ctx.User);
-    var allocation = new ShelterAllocation { ShelterId = shelter.Id, RequestId = req.Id, PeopleCount = dto.PeopleCount, ApprovedBy = actor };
+    var allocation = new ShelterAllocation { ShelterId = shelter.Id, RequestId = req.Id, PeopleCount = dto.PeopleCount,
+        ApprovedBy = actor, Status = "Reserved" };
     db.ShelterAllocations.Add(allocation);
-    TraceLog.Add(db, "ShelterAllocation", allocation.Id, "Approved", actor, new { dto.PeopleCount, dto.ShelterId });
+    TraceLog.Add(db, "ShelterAllocation", allocation.Id, "Reserved", actor, new { dto.PeopleCount, dto.ShelterId });
     TraceLog.History(db, req.Id, actor, "Shelter assigned", shelter.Name);
     TraceLog.Queue(db, req.CitizenId, $"shelter:{allocation.Id}", "Shelter assigned", $"Your household was assigned to {shelter.Name}.");
     await db.SaveChangesAsync(); await tx.CommitAsync(); return Results.Ok(allocation);
 }).RequireAuthorization(p => p.RequireRole(Roles.ShelterAdmin, Roles.Coordinator, Roles.Admin));
-shelters.MapGet("/allocations", async (AidDbContext db) => await db.ShelterAllocations.AsNoTracking().ToListAsync())
+shelters.MapGet("/allocations", async (HttpContext ctx, AidDbContext db) => {
+    var query = db.ShelterAllocations.AsNoTracking().AsQueryable();
+    if (Access.Role(ctx.User) == Roles.ShelterAdmin)
+    {
+        var actorId = Access.UserId(ctx.User);
+        query = query.Where(x => db.Shelters.Any(s => s.Id == x.ShelterId &&
+            (s.AdministratorId == null || s.AdministratorId == actorId)));
+    }
+    return await query.ToListAsync();
+})
     .RequireAuthorization(p => p.RequireRole(Roles.ShelterAdmin, Roles.Coordinator, Roles.Admin));
 
 var volunteers = api.MapGroup("/volunteers");
@@ -289,10 +329,25 @@ volunteers.MapGet("/", async (AidDbContext db) => await db.Volunteers.AsNoTracki
     .RequireAuthorization(p => p.RequireRole(Roles.VolunteerCoordinator, Roles.Coordinator, Roles.Admin));
 volunteers.MapPut("/me", async (VolunteerProfileDto dto, HttpContext ctx, AidDbContext db) => {
     if (Access.Role(ctx.User) != Roles.Volunteer) return Results.Forbid();
+    if (string.IsNullOrWhiteSpace(dto.Skills) || dto.Skills.Length > 500 ||
+        string.IsNullOrWhiteSpace(dto.Area) || dto.Area.Length > 160)
+        return Results.BadRequest(new { error = "Skills and operating area are required and must be within limits" });
+    if ((dto.Latitude.HasValue != dto.Longitude.HasValue) ||
+        (dto.Latitude.HasValue && !Access.Coordinates(dto.Latitude.Value, dto.Longitude!.Value)))
+        return Results.BadRequest(new { error = "Provide valid latitude and longitude together" });
     var id = Access.UserId(ctx.User);
     var profile = await db.Volunteers.SingleOrDefaultAsync(v => v.UserId == id);
     if (profile == null) { profile = new VolunteerProfile { UserId = id }; db.Volunteers.Add(profile); }
     profile.Skills = dto.Skills; profile.Area = dto.Area; profile.Available = dto.Available;
+    profile.Latitude = dto.Latitude; profile.Longitude = dto.Longitude;
+    var skills = dto.Skills.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+        .Select(x => x.Trim()).Where(x => x.Length <= 80).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+    var previousSkills = await db.VolunteerSkills.Where(x => x.VolunteerId == profile.Id).ToListAsync();
+    var retainedNames = new HashSet<string>(skills, StringComparer.OrdinalIgnoreCase);
+    db.VolunteerSkills.RemoveRange(previousSkills.Where(x => !retainedNames.Contains(x.Name)));
+    var existingNames = new HashSet<string>(previousSkills.Select(x => x.Name), StringComparer.OrdinalIgnoreCase);
+    db.VolunteerSkills.AddRange(skills.Where(name => !existingNames.Contains(name))
+        .Select(name => new VolunteerSkill { VolunteerId = profile.Id, Name = name }));
     TraceLog.Add(db, "Volunteer", profile.Id, "ProfileUpdated", id);
     await db.SaveChangesAsync(); return Results.Ok(profile);
 });
@@ -302,34 +357,142 @@ volunteers.MapPatch("/{id:guid}/verify", async (Guid id, VerifyVolunteerDto dto,
     await db.SaveChangesAsync(); return Results.Ok(v);
 }).RequireAuthorization(p => p.RequireRole(Roles.VolunteerCoordinator, Roles.Coordinator, Roles.Admin));
 volunteers.MapPost("/tasks", async (AssignVolunteerDto dto, HttpContext ctx, AidDbContext db) => {
+    if (string.IsNullOrWhiteSpace(dto.RequiredSkill) || dto.RequiredSkill.Length > 80 ||
+        string.IsNullOrWhiteSpace(dto.Description) || dto.Description.Length > 2000 ||
+        !new[] { "Low", "Medium", "High", "Critical" }.Contains(dto.Urgency) ||
+        dto.DurationMinutes is <= 0 or > 1440 || dto.CheckInIntervalMinutes is < 1 or > 1440 ||
+        (dto.ScheduledStartAt.HasValue != dto.DurationMinutes.HasValue) ||
+        (dto.Latitude.HasValue != dto.Longitude.HasValue) ||
+        (dto.Latitude.HasValue && !Access.Coordinates(dto.Latitude.Value, dto.Longitude!.Value)))
+        return Results.BadRequest(new { error = "Invalid task details or schedule" });
+    await using var tx = await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable);
     var v = await db.Volunteers.FindAsync(dto.VolunteerId);
     if (v == null) return Results.NotFound();
-    if (!v.Verified || !v.Available || !v.Skills.Contains(dto.RequiredSkill, StringComparison.OrdinalIgnoreCase))
+    var skillRows = await db.VolunteerSkills.Where(x => x.VolunteerId == v.Id).ToListAsync();
+    var hasSkill = VolunteerSkillMatcher.HasVerifiedSkill(v, skillRows, dto.RequiredSkill);
+    if (!v.Verified || !v.Available || !hasSkill)
         return Results.Conflict(new { error = "Volunteer verification, availability or required skill constraint failed" });
+    if (dto.ScheduledStartAt is DateTimeOffset start)
+    {
+        var startUtc = start.UtcDateTime;
+        if (startUtc <= DateTime.UtcNow) return Results.BadRequest(new { error = "Task schedule must be in the future" });
+        var endUtc = startUtc.AddMinutes(dto.DurationMinutes!.Value);
+        var availability = await db.VolunteerAvailabilities.AnyAsync(x => x.VolunteerId == v.Id &&
+            x.StartsAt <= startUtc && x.EndsAt >= endUtc);
+        var existingTasks = await db.VolunteerTasks.Where(x => x.VolunteerId == v.Id)
+            .ToListAsync();
+        var overlapping = VolunteerSchedule.Overlaps(startUtc, dto.DurationMinutes!.Value, existingTasks);
+        if (!availability || overlapping)
+            return Results.Conflict(new { error = "Volunteer availability or schedule conflict" });
+    }
+    else if (await db.VolunteerTasks.AnyAsync(x => x.VolunteerId == v.Id &&
+        x.Status != "Completed" && x.Status != "Cancelled" && x.Status != "Declined"))
+        return Results.Conflict(new { error = "Volunteer already has an active assignment" });
     if (dto.RequestId is Guid reqid && !await db.Requests.AnyAsync(r => r.Id == reqid && (r.Status == "Verified" || r.Status == "Assigned")))
         return Results.Conflict(new { error = "Request not approved" });
     var task = new VolunteerTask { VolunteerId = v.Id, RequestId = dto.RequestId, RequiredSkill = dto.RequiredSkill,
-        Description = dto.Description, AssignedBy = Access.UserId(ctx.User) };
-    db.VolunteerTasks.Add(task); v.Available = false;
+        Description = dto.Description, AssignedBy = Access.UserId(ctx.User), ScheduledStartAt = dto.ScheduledStartAt?.UtcDateTime,
+        DurationMinutes = dto.DurationMinutes, Urgency = dto.Urgency, Latitude = dto.Latitude, Longitude = dto.Longitude,
+        CheckInIntervalMinutes = dto.CheckInIntervalMinutes };
+    db.VolunteerTasks.Add(task);
+    if (!dto.ScheduledStartAt.HasValue) v.Available = false;
     TraceLog.Add(db, "VolunteerTask", task.Id, "Assigned", Access.UserId(ctx.User));
     TraceLog.Queue(db, v.UserId, $"volunteer:{task.Id}", "Volunteer task assigned", dto.Description);
-    await db.SaveChangesAsync(); return Results.Ok(task);
+    await db.SaveChangesAsync(); await tx.CommitAsync(); return Results.Ok(task);
 }).RequireAuthorization(p => p.RequireRole(Roles.VolunteerCoordinator, Roles.Coordinator, Roles.Admin));
 volunteers.MapGet("/tasks", async (HttpContext ctx, AidDbContext db) => {
-    if (Access.Staff(ctx.User)) return Results.Ok(await db.VolunteerTasks.OrderByDescending(x => x.At).ToListAsync());
+    if (Access.Role(ctx.User) is Roles.VolunteerCoordinator or Roles.Coordinator or Roles.Admin)
+        return Results.Ok(await db.VolunteerTasks.OrderByDescending(x => x.At).ToListAsync());
+    if (Access.Role(ctx.User) != Roles.Volunteer) return Results.Forbid();
     var id = Access.UserId(ctx.User);
     var volunteerIds = db.Volunteers.Where(x => x.UserId == id).Select(x => x.Id);
     return Results.Ok(await db.VolunteerTasks.Where(x => volunteerIds.Contains(x.VolunteerId)).ToListAsync());
 });
 volunteers.MapPatch("/tasks/{id:guid}", async (Guid id, TaskStatusDto dto, HttpContext ctx, AidDbContext db) => {
+    await using var tx = await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable);
     var task = await db.VolunteerTasks.FindAsync(id); if (task == null) return Results.NotFound();
     var profile = await db.Volunteers.FindAsync(task.VolunteerId); if (profile == null) return Results.NotFound();
-    if (!Access.Staff(ctx.User) && profile.UserId != Access.UserId(ctx.User)) return Results.Forbid();
-    if (!((task.Status == "Assigned" && dto.Status == "Accepted") || (task.Status == "Accepted" && dto.Status == "Completed")))
-        return Results.Conflict(new { error = "Invalid task state transition" });
-    task.Status = dto.Status; if (dto.Status == "Completed") { task.CompletedAt = DateTime.UtcNow; profile.Available = true; }
-    TraceLog.Add(db, "VolunteerTask", id, dto.Status, Access.UserId(ctx.User));
-    await db.SaveChangesAsync(); return Results.Ok(task);
+    var actor = Access.UserId(ctx.User);
+    var coordinator = Access.Role(ctx.User) is Roles.VolunteerCoordinator or Roles.Coordinator or Roles.Admin;
+    if (!coordinator && profile.UserId != actor) return Results.Forbid();
+    if (dto.VerifyCompletion)
+    {
+        if (!coordinator || task.Status != "Completed") return Results.Forbid();
+        task.CoordinatorVerified = true; task.VerifiedBy = actor; task.VerifiedAt = DateTime.UtcNow;
+        db.VolunteerActivityLogs.Add(new VolunteerActivityLog { VolunteerId = profile.Id, TaskId = task.Id,
+            ActorId = actor, Activity = "CoordinatorVerified", Notes = dto.Notes });
+    }
+    else if (dto.Status == "Reassigned")
+    {
+        if (!coordinator || dto.ReassignToVolunteerId is not Guid replacementId) return Results.Forbid();
+        var replacement = await db.Volunteers.FindAsync(replacementId);
+        if (replacement == null || replacement.Id == profile.Id || !replacement.Verified || !replacement.Available)
+            return Results.Conflict(new { error = "Replacement volunteer is not eligible" });
+        var replacementSkills = await db.VolunteerSkills.Where(x => x.VolunteerId == replacement.Id).ToListAsync();
+        if (!VolunteerSkillMatcher.HasVerifiedSkill(replacement, replacementSkills, task.RequiredSkill))
+            return Results.Conflict(new { error = "Replacement volunteer does not have the required skill" });
+        var replacementTasks = await db.VolunteerTasks.Where(x => x.VolunteerId == replacement.Id && x.Id != task.Id)
+            .ToListAsync();
+        if (task.ScheduledStartAt is DateTime scheduledStart && task.DurationMinutes is int duration)
+        {
+            var available = await db.VolunteerAvailabilities.AnyAsync(x => x.VolunteerId == replacement.Id &&
+                x.StartsAt <= scheduledStart && x.EndsAt >= scheduledStart.AddMinutes(duration));
+            if (!available || VolunteerSchedule.Overlaps(scheduledStart, duration, replacementTasks))
+                return Results.Conflict(new { error = "Replacement volunteer is unavailable or has an overlapping task" });
+        }
+        else if (replacementTasks.Any(x => x.Status is not ("Completed" or "Cancelled" or "Declined")))
+            return Results.Conflict(new { error = "Replacement volunteer already has an active assignment" });
+        profile.Available = !await db.VolunteerTasks.AnyAsync(x => x.VolunteerId == profile.Id && x.Id != task.Id &&
+            x.Status != "Completed" && x.Status != "Cancelled" && x.Status != "Declined");
+        task.VolunteerId = replacement.Id; task.Status = "Reassigned"; task.AssignedBy = actor;
+        task.NextCheckInDueAt = null; task.OverdueAlertSentAt = null;
+        if (!task.ScheduledStartAt.HasValue) replacement.Available = false;
+        db.VolunteerActivityLogs.Add(new VolunteerActivityLog { VolunteerId = profile.Id, TaskId = task.Id,
+            ActorId = actor, Activity = "Reassigned", Notes = dto.Reason });
+        db.VolunteerActivityLogs.Add(new VolunteerActivityLog { VolunteerId = replacement.Id, TaskId = task.Id,
+            ActorId = actor, Activity = "Assigned", Notes = dto.Reason });
+        TraceLog.Queue(db, replacement.UserId, $"volunteer:{task.Id}:reassigned", "Volunteer task reassigned", task.Description);
+    }
+    else if (dto.Status == "Cancelled")
+    {
+        if (!coordinator || task.Status is "Completed" or "Cancelled") return Results.Forbid();
+        task.Status = "Cancelled"; task.NextCheckInDueAt = null;
+        profile.Available = !await db.VolunteerTasks.AnyAsync(x => x.VolunteerId == profile.Id && x.Id != task.Id &&
+            x.Status != "Completed" && x.Status != "Cancelled" && x.Status != "Declined");
+        db.VolunteerActivityLogs.Add(new VolunteerActivityLog { VolunteerId = profile.Id, TaskId = task.Id,
+            ActorId = actor, Activity = "Cancelled", Notes = dto.Reason });
+    }
+    else
+    {
+        var validTransition = ((task.Status is "Assigned" or "Reassigned") && (dto.Status is "Accepted" or "Declined")) ||
+            (task.Status == "Accepted" && (dto.Status is "In Progress" or "Completed")) ||
+            (task.Status == "In Progress" && dto.Status == "Completed");
+        if (!validTransition || coordinator) return Results.Conflict(new { error = "Invalid task state transition" });
+        if (dto.Status == "Declined" && string.IsNullOrWhiteSpace(dto.Reason))
+            return Results.BadRequest(new { error = "A reason is required to decline a task" });
+        if (dto.HoursWorked is < 0 or > 24) return Results.BadRequest(new { error = "Hours worked must be between 0 and 24" });
+        task.Status = dto.Status;
+        if (dto.Status == "Declined")
+        {
+            task.DeclineReason = dto.Reason; task.NextCheckInDueAt = null;
+            profile.Available = !await db.VolunteerTasks.AnyAsync(x => x.VolunteerId == profile.Id && x.Id != task.Id &&
+                x.Status != "Completed" && x.Status != "Cancelled" && x.Status != "Declined");
+        }
+        if (dto.Status is "Accepted" or "In Progress")
+            task.NextCheckInDueAt = DateTime.UtcNow.AddMinutes(task.CheckInIntervalMinutes);
+        if (dto.Status == "Completed")
+        {
+            task.CompletedAt = DateTime.UtcNow; task.HoursWorked = dto.HoursWorked;
+            task.CompletionNotes = dto.Notes?.Trim() ?? ""; task.NextCheckInDueAt = null;
+            profile.Available = !await db.VolunteerTasks.AnyAsync(x => x.VolunteerId == profile.Id && x.Id != task.Id &&
+                x.Status != "Completed" && x.Status != "Cancelled" && x.Status != "Declined");
+        }
+        db.VolunteerActivityLogs.Add(new VolunteerActivityLog { VolunteerId = profile.Id, TaskId = task.Id,
+            ActorId = actor, Activity = dto.Status, Notes = dto.Status == "Declined" ? dto.Reason : dto.Notes?.Trim() ?? "",
+            HoursWorked = dto.Status == "Completed" ? dto.HoursWorked : null });
+    }
+    TraceLog.Add(db, "VolunteerTask", id, dto.VerifyCompletion ? "CoordinatorVerified" : dto.Status, actor, dto);
+    await db.SaveChangesAsync(); await tx.CommitAsync(); return Results.Ok(task);
 });
 
 api.MapGet("/campaigns", async (AidDbContext db) => await db.Campaigns.ToListAsync());
@@ -413,10 +576,14 @@ api.MapPatch("/users/{id:guid}/role", async (Guid id, RoleDto dto, HttpContext c
     await db.SaveChangesAsync(); return Results.Ok(new { u.Id, u.Role });
 }).RequireAuthorization(p => p.RequireRole(Roles.Admin));
 
-api.MapGet("/map/geocode", async (string query, IHttpClientFactory factory, CancellationToken ct) => {
+api.MapGet("/map/geocode", async (string query, IHttpClientFactory factory, IConfiguration configuration, CancellationToken ct) => {
     if (query.Length is < 3 or > 100) return Results.BadRequest(new { error = "Search term must be 3-100 characters" });
+    var baseUrl = configuration["Map:ForwardGeocodingBaseUrl"] ?? "https://nominatim.openstreetmap.org/search";
+    if (!Uri.TryCreate(baseUrl, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps)
+        return Results.Json(new { error = "Geocoding provider is not configured with a valid HTTPS URL" },
+            statusCode: StatusCodes.Status503ServiceUnavailable);
     try {
-        var url = "https://nominatim.openstreetmap.org/search?format=json&limit=4&q=" + Uri.EscapeDataString(query);
+        var url = $"{uri}?format=json&limit=4&q=" + Uri.EscapeDataString(query);
         var json = await factory.CreateClient("map").GetStringAsync(url, ct);
         return Results.Content(json, "application/json");
     } catch (HttpRequestException) { return Results.Json(new { error = "Mapping provider unavailable; enter coordinates manually" }, statusCode: 503); }
