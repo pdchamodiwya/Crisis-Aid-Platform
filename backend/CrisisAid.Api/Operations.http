@@ -1,0 +1,306 @@
+@baseUrl = http://localhost:8080/api
+@token = replace-with-jwt
+@shelterId = 00000000-0000-0000-0000-000000000001
+@allocationId = 00000000-0000-0000-0000-000000000002
+@requestId = 00000000-0000-0000-0000-000000000003
+@crisisId = 00000000-0000-0000-0000-000000000004
+@volunteerId = 00000000-0000-0000-0000-000000000005
+@shelterAdminUserId = 00000000-0000-0000-0000-000000000013
+@taskId = 00000000-0000-0000-0000-000000000006
+@skillId = 00000000-0000-0000-0000-000000000007
+@availabilityId = 00000000-0000-0000-0000-000000000008
+@qualificationId = 00000000-0000-0000-0000-000000000009
+@supplyRequestId = 00000000-0000-0000-0000-000000000010
+@centreId = 00000000-0000-0000-0000-000000000011
+@checkInId = 00000000-0000-0000-0000-000000000012
+
+### Shelter edit (Shelter Administrator / Coordinator / System Administrator)
+PUT {{baseUrl}}/shelters/{{shelterId}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "name": "Community Hall",
+  "area": "Colombo",
+  "capacity": 100,
+  "accessible": true,
+  "facilities": "Water, ramps",
+  "latitude": 6.919,
+  "longitude": 79.869,
+  "contactName": "Shelter Lead",
+  "contactPhone": "+94110000000",
+  "contactEmail": "shelter@example.invalid",
+  "openingHours": "24 hours",
+  "medicalFacilities": true,
+  "sanitationFacilities": true,
+  "foodAvailable": true
+}
+
+### Update shelter operating status
+PATCH {{baseUrl}}/shelters/{{shelterId}}/status
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "status": "Open" }
+
+### Assign or clear the responsible shelter administrator
+PATCH {{baseUrl}}/shelters/{{shelterId}}/administrator
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "userId": "{{shelterAdminUserId}}" }
+
+### Occupancy separates checked-in people and reservations
+GET {{baseUrl}}/shelters/{{shelterId}}/occupancy
+Authorization: Bearer {{token}}
+
+### Check a household into its reservation
+POST {{baseUrl}}/shelter-allocations/{{allocationId}}/check-in
+Authorization: Bearer {{token}}
+
+### Check a household out
+POST {{baseUrl}}/shelter-allocations/{{allocationId}}/check-out
+Authorization: Bearer {{token}}
+
+### Cancel a reservation
+POST {{baseUrl}}/shelter-allocations/{{allocationId}}/cancel
+Authorization: Bearer {{token}}
+
+### Unified shelter and facility directory
+GET {{baseUrl}}/shelters/facilities
+Authorization: Bearer {{token}}
+
+### Add an assistance centre
+POST {{baseUrl}}/assistance-centres
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "name": "Community Help Desk",
+  "type": "AssistanceCentre",
+  "area": "Colombo",
+  "facilities": "Information, water",
+  "accessible": true,
+  "contactName": "Coordinator",
+  "contactPhone": "",
+  "contactEmail": "",
+  "openingHours": "08:00-20:00",
+  "latitude": 6.9271,
+  "longitude": 79.8612
+}
+
+### Edit an assistance centre
+PUT {{baseUrl}}/assistance-centres/{{centreId}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "name": "Community Help Desk",
+  "type": "AssistanceCentre",
+  "area": "Colombo",
+  "facilities": "Information, water",
+  "accessible": true,
+  "contactName": "Coordinator",
+  "contactPhone": "",
+  "contactEmail": "",
+  "openingHours": "08:00-20:00",
+  "latitude": 6.9271,
+  "longitude": 79.8612
+}
+
+### Rank shelters for a human-reviewed request
+POST {{baseUrl}}/shelters/recommendations
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "requestId": "{{requestId}}", "requireSanitation": true }
+
+### Create a shelter resource request
+POST {{baseUrl}}/shelters/{{shelterId}}/supply-requests
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "crisisId": "{{crisisId}}",
+  "category": "Water",
+  "description": "Drinking water for residents",
+  "quantity": 30
+}
+
+### List shelter supply requests (shelter or logistics staff)
+GET {{baseUrl}}/shelter-supply-requests
+Authorization: Bearer {{token}}
+
+### Approve shelter supply request and create a linked logistics case
+PATCH {{baseUrl}}/shelter-supply-requests/{{supplyRequestId}}/status
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "status": "Approved" }
+
+### Mark approved supplies dispatched / delivered (Logistics)
+PATCH {{baseUrl}}/shelter-supply-requests/{{supplyRequestId}}/status
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "status": "Dispatched" }
+
+### Submit volunteer structured skills (Volunteer)
+PUT {{baseUrl}}/volunteers/me/skills
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "skills": ["First aid", "Translation"] }
+
+### Current volunteer profile (Volunteer)
+GET {{baseUrl}}/volunteers/me/profile
+Authorization: Bearer {{token}}
+
+### Current volunteer skills (Volunteer)
+GET {{baseUrl}}/volunteers/me/skills
+Authorization: Bearer {{token}}
+
+### List volunteer skills for verification (Volunteer Coordinator)
+GET {{baseUrl}}/volunteers/{{volunteerId}}/skills
+Authorization: Bearer {{token}}
+
+### Verify a volunteer skill
+PATCH {{baseUrl}}/volunteers/{{volunteerId}}/skills/{{skillId}}/verify
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "verified": true }
+
+### Current volunteer availability (Volunteer)
+GET {{baseUrl}}/volunteers/me/availability
+Authorization: Bearer {{token}}
+
+### Add volunteer availability (Volunteer)
+POST {{baseUrl}}/volunteers/me/availability
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "startsAt": "2027-01-15T08:00:00+05:30",
+  "endsAt": "2027-01-15T16:00:00+05:30"
+}
+
+### Remove volunteer availability (Volunteer)
+DELETE {{baseUrl}}/volunteers/me/availability/{{availabilityId}}
+Authorization: Bearer {{token}}
+
+### Submit a qualification (Volunteer)
+POST {{baseUrl}}/volunteers/me/qualifications
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "name": "First Aid",
+  "issuer": "Training provider",
+  "reference": "CERT-123",
+  "expiresAt": "2027-12-31T23:59:00+05:30"
+}
+
+### Current volunteer qualifications (Volunteer)
+GET {{baseUrl}}/volunteers/me/qualifications
+Authorization: Bearer {{token}}
+
+### List volunteer qualifications for verification
+GET {{baseUrl}}/volunteers/{{volunteerId}}/qualifications
+Authorization: Bearer {{token}}
+
+### Verify a volunteer qualification
+PATCH {{baseUrl}}/volunteers/{{volunteerId}}/qualifications/{{qualificationId}}/verify
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "verified": true }
+
+### Rank volunteers for a scheduled task
+POST {{baseUrl}}/volunteers/matches
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "requiredSkill": "First aid",
+  "scheduledStartAt": "2027-01-15T09:00:00+05:30",
+  "durationMinutes": 120,
+  "urgency": "High",
+  "latitude": 6.9271,
+  "longitude": 79.8612
+}
+
+### Assign a ranked candidate (Volunteer Coordinator)
+POST {{baseUrl}}/volunteers/tasks
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "requestId": null,
+  "volunteerId": "{{volunteerId}}",
+  "requiredSkill": "First aid",
+  "description": "Deliver first aid supplies",
+  "scheduledStartAt": "2027-01-15T09:00:00+05:30",
+  "durationMinutes": 120,
+  "urgency": "High",
+  "latitude": 6.9271,
+  "longitude": 79.8612,
+  "checkInIntervalMinutes": 30
+}
+
+### Volunteer task status transition
+PATCH {{baseUrl}}/volunteers/tasks/{{taskId}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "status": "Accepted" }
+
+### Check-in for an active volunteer assignment (Volunteer)
+POST {{baseUrl}}/volunteers/tasks/{{taskId}}/check-ins
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "area": "Colombo",
+  "latitude": 6.9271,
+  "longitude": 79.8612
+}
+
+### Volunteer safety status and overdue check-ins (Coordinator)
+GET {{baseUrl}}/volunteers/safety-status
+Authorization: Bearer {{token}}
+
+### Overdue safety alerts for coordinator follow-up
+GET {{baseUrl}}/volunteers/check-ins
+Authorization: Bearer {{token}}
+
+### Resolve an overdue safety check-in (Coordinator)
+PATCH {{baseUrl}}/volunteers/check-ins/{{checkInId}}/resolve
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "notes": "Contacted volunteer; confirmed safe and assignment updated." }
+
+### Reverse geocode (rate limited)
+GET {{baseUrl}}/map/reverse-geocode?latitude=6.9271&longitude=79.8612
+Authorization: Bearer {{token}}
+
+### Road route (uses configured routing provider or labelled Haversine fallback)
+GET {{baseUrl}}/map/route?fromLat=6.9271&fromLon=79.8612&toLat=7.08&toLon=79.99
+Authorization: Bearer {{token}}
+
+### Operational service areas
+GET {{baseUrl}}/map/service-areas
+Authorization: Bearer {{token}}
+
+### Publicly permitted operational centres
+GET {{baseUrl}}/map/service-centres
+Authorization: Bearer {{token}}
+
+### Aggregated service coverage (authorized staff)
+GET {{baseUrl}}/map/coverage
+Authorization: Bearer {{token}}
+
+### Operational layers, including resource locations and aggregated shortages
+GET {{baseUrl}}/map/layers
+Authorization: Bearer {{token}}
