@@ -12,6 +12,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
+using CrisisAid.Api.Services.Communication;
 
 var builder = WebApplication.CreateBuilder(args);
 var jwtKey = builder.Configuration["Jwt:Key"] ?? throw new InvalidOperationException("Set Jwt__Key via environment (minimum 32 characters)");
@@ -60,6 +61,12 @@ builder.Services.AddSwaggerGen(o => {
 });
 builder.Services.AddScoped<DonationService>();
 builder.Services.AddScoped<DonationFraudService>();
+builder.Services.AddScoped<
+    INotificationProvider,
+    EmailNotificationProvider>();
+
+builder.Services.AddScoped<
+    NotificationProviderFactory>();
 var app = builder.Build();
 
 
@@ -504,5 +511,14 @@ api.MapGet("/map/distance", (double fromLat, double fromLon, double toLat, doubl
         Results.BadRequest(new { error = "Invalid coordinates" }));
 
 app.Run();
-
+builder.Services.AddHttpClient(
+    "sms",
+    client =>
+    {
+        client.Timeout =
+            TimeSpan.FromSeconds(15);
+    });
+builder.Services.AddScoped<
+    INotificationProvider,
+    SmsNotificationProvider>();
 public partial class Program { } // WebApplicationFactory integration tests can reference the entry point.
