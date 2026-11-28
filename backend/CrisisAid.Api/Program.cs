@@ -1,3 +1,4 @@
+using CrisisAid.Api.Endpoints;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Threading.RateLimiting;
@@ -25,11 +26,6 @@ builder.Services.AddHttpClient("map", c => { c.Timeout = TimeSpan.FromSeconds(5)
 builder.Services.AddScoped<IAiDecisionService, AiDecisionService>();
 builder.Services.AddScoped<IRequestRepository, EfRequestRepository>();
 builder.Services.AddSingleton<IResourceMatchStrategyFactory, ResourceMatchStrategyFactory>();
-builder.Services.AddScoped<IDeliveryVerificationService, DeliveryVerificationService>();
-builder.Services.AddScoped<ILogisticsService, LogisticsService>();
-builder.Services.AddScoped<IShortageResolutionService, ShortageResolutionService>();
-builder.Services.AddScoped<IDispatchService, DispatchService>();
-builder.Services.AddScoped<IPartnerCoordinationService, PartnerCoordinationService>();
 builder.Services.AddRateLimiter(opts => {
     opts.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
     opts.AddPolicy("auth", ctx => RateLimitPartition.GetFixedWindowLimiter(ctx.Connection.RemoteIpAddress?.ToString() ?? "unknown", k => new FixedWindowRateLimiterOptions {
@@ -118,7 +114,7 @@ app.MapPost("/api/auth/login", async (LoginDto input, AidDbContext db, IPassword
 
 var api = app.MapGroup("/api").RequireAuthorization();
 ExtendedModules.Map(api);
-LogisticsEndpoints.Map(api, app);
+DonationEndpoints.Map(api);
 api.MapGet("/me", async (HttpContext ctx, AidDbContext db) => {
     var id = Access.UserId(ctx.User);
     return await db.Users.Where(x => x.Id == id).Select(x => new { x.Id, x.DisplayName, x.Email, x.Role, x.OrganisationId }).FirstOrDefaultAsync() is { } me
@@ -227,13 +223,14 @@ requests.MapGet("/{id:guid}/resource-matches", async (Guid id, bool? allowPartia
 }).RequireAuthorization(p => p.RequireRole(Roles.Coordinator, Roles.Logistics, Roles.Admin));
 
 var resources = api.MapGroup("/resources");
-resources.MapGet("/", async (string? category, string? area, bool? lowStock, bool? expiring, ILogisticsService logistics, CancellationToken ct) =>
-    await logistics.GetInventoryAsync(category, area, lowStock, expiring, ct));
-resources.MapPost("/", async (ResourceDto dto, HttpContext ctx, ILogisticsService logistics, CancellationToken ct) => {
+resources.MapGet("/", async (AidDbContext db) => await db.Resources.AsNoTracking().OrderBy(x => x.Category).ToListAsync());
+resources.MapPost("/", async (ResourceDto dto, HttpContext ctx, AidDbContext db) => {
     if (dto.AvailableQuantity < 0 || string.IsNullOrWhiteSpace(dto.Name) || !Access.Coordinates(dto.Latitude, dto.Longitude)) return Results.BadRequest();
-    var created = await logistics.CreateResourceAsync(new CreateResourceDto(dto.Name, dto.Category, dto.Unit, dto.AvailableQuantity,
-        dto.Area, dto.Latitude, dto.Longitude, dto.Accessible, dto.ExpiresAt), Access.UserId(ctx.User), ct);
-    return Results.Created($"/api/resources/{created.Id}", created);
+    var item = new ResourceItem { Name = dto.Name, Category = dto.Category, Unit = dto.Unit, Area = dto.Area,
+        AvailableQuantity = dto.AvailableQuantity, Accessible = dto.Accessible, ExpiresAt = dto.ExpiresAt,
+        Latitude = dto.Latitude, Longitude = dto.Longitude };
+    db.Resources.Add(item); TraceLog.Add(db, "Resource", item.Id, "Created", Access.UserId(ctx.User));
+    await db.SaveChangesAsync(); return Results.Created($"/api/resources/{item.Id}", item);
 }).RequireAuthorization(p => p.RequireRole(Roles.Logistics, Roles.Coordinator, Roles.Admin));
 resources.MapPost("/allocate", async (AllocateResourceDto dto, HttpContext ctx, AidDbContext db) => {
     if (dto.Quantity < 1) return Results.BadRequest(new { error = "Quantity must be positive" });
@@ -247,21 +244,10 @@ resources.MapPost("/allocate", async (AllocateResourceDto dto, HttpContext ctx, 
     if (resource.AvailableQuantity < dto.Quantity) return Results.Conflict(new { error = "Shortage: insufficient stock; try partial allocation or another resource" });
     var reserved = await db.ResourceAllocations.Where(x => x.RequestId == request.Id && x.Status != "Cancelled").SumAsync(x => (int?)x.Quantity) ?? 0;
     if (reserved + dto.Quantity > request.RequestedQuantity) return Results.Conflict(new { error = "Requested quantity would be exceeded" });
-    resource.AvailableQuantity -= dto.Quantity;
-    resource.ReservedQuantity += dto.Quantity;
-    request.Status = "Assigned"; request.UpdatedAt = DateTime.UtcNow;
+    resource.AvailableQuantity -= dto.Quantity; request.Status = "Assigned"; request.UpdatedAt = DateTime.UtcNow;
     var actor = Access.UserId(ctx.User);
-    var allocation = new ResourceAllocation {
-        RequestId = request.Id, ResourceId = resource.Id, Quantity = dto.Quantity,
-        QuantityRequested = request.RequestedQuantity, QuantityAllocated = dto.Quantity,
-        QuantityRemaining = Math.Max(0, request.RequestedQuantity - (reserved + dto.Quantity)),
-        Status = "Reserved", ApprovedBy = actor };
-    db.ResourceAllocations.Add(allocation);
-    db.StockMovements.Add(new StockMovement {
-        ResourceId = resource.Id, MovementType = "Stock Reserved", Quantity = dto.Quantity,
-        ReferenceId = allocation.Id, Notes = $"Reserved for Request #{request.Id.ToString()[..8].ToUpper()}",
-        PerformedBy = actor, CreatedAt = DateTime.UtcNow });
-    TraceLog.History(db, request.Id, actor, "Resources reserved", $"{dto.Quantity} {resource.Unit}: {resource.Name}");
+    var allocation = new ResourceAllocation { RequestId = request.Id, ResourceId = resource.Id, Quantity = dto.Quantity, ApprovedBy = actor };
+    db.ResourceAllocations.Add(allocation); TraceLog.History(db, request.Id, actor, "Resources reserved", $"{dto.Quantity} {resource.Unit}: {resource.Name}");
     TraceLog.Add(db, "ResourceAllocation", allocation.Id, "Reserved", actor, new { dto.RequestId, dto.ResourceId, dto.Quantity });
     TraceLog.Queue(db, request.CitizenId, $"allocation:{allocation.Id}", "Aid allocated", $"{dto.Quantity} {resource.Unit} have been allocated to your request.");
     await db.SaveChangesAsync(); await tx.CommitAsync(); return Results.Ok(allocation);
@@ -348,27 +334,7 @@ volunteers.MapPatch("/tasks/{id:guid}", async (Guid id, TaskStatusDto dto, HttpC
     await db.SaveChangesAsync(); return Results.Ok(task);
 });
 
-api.MapGet("/campaigns", async (AidDbContext db) => await db.Campaigns.ToListAsync());
-api.MapPost("/campaigns", async (CampaignDto dto, HttpContext ctx, AidDbContext db) => {
-    if (dto.TargetAmount <= 0 || !await db.Crises.AnyAsync(c => c.Id == dto.CrisisId)) return Results.BadRequest();
-    var campaign = new DonationCampaign { Name = dto.Name, CrisisId = dto.CrisisId, TargetAmount = dto.TargetAmount };
-    db.Campaigns.Add(campaign); TraceLog.Add(db, "Campaign", campaign.Id, "Created", Access.UserId(ctx.User));
-    await db.SaveChangesAsync(); return Results.Ok(campaign);
-}).RequireAuthorization(p => p.RequireRole(Roles.Funding, Roles.Coordinator, Roles.Admin));
-api.MapPost("/donations", async (DonationDto dto, HttpContext ctx, AidDbContext db) => {
-    if (dto.Amount <= 0 || !new[] { "LKR", "USD", "EUR" }.Contains(dto.Currency) ||
-        !await db.Campaigns.AnyAsync(x => x.Id == dto.CampaignId && x.Status == "Open")) return Results.BadRequest();
-    var donation = new Donation { DonorId = Access.UserId(ctx.User), CampaignId = dto.CampaignId,
-        Amount = dto.Amount, Currency = dto.Currency, Kind = dto.Kind, Status = "PledgeRecorded" };
-    db.Donations.Add(donation); TraceLog.Add(db, "Donation", donation.Id, "PledgeRecorded", donation.DonorId,
-        new { donation.CampaignId, donation.Amount, donation.Currency });
-    await db.SaveChangesAsync(); return Results.Ok(donation);
-});
-api.MapGet("/donations", async (HttpContext ctx, AidDbContext db) => {
-    IQueryable<Donation> q = db.Donations.AsNoTracking();
-    if (!Access.Staff(ctx.User)) q = q.Where(x => x.DonorId == Access.UserId(ctx.User));
-    return await q.OrderByDescending(x => x.At).Take(200).ToListAsync();
-});
+
 
 api.MapGet("/notifications", async (HttpContext ctx, AidDbContext db) =>
     await db.Notifications.Where(x => x.RecipientId == Access.UserId(ctx.User)).OrderByDescending(x => x.At).Take(100).ToListAsync());

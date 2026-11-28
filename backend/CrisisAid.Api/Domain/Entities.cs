@@ -98,18 +98,66 @@ public class VolunteerTask
     public string RequiredSkill {get;set;}=""; public string Description {get;set;}=""; public string Status {get;set;}="Assigned";
     public Guid AssignedBy {get;set;} public DateTime At {get;set;}=DateTime.UtcNow; public DateTime? CompletedAt {get;set;}
 }
-public class DonationCampaign { public Guid Id {get;set;}=Guid.NewGuid(); public string Name {get;set;}=""; public Guid CrisisId {get;set;} public decimal TargetAmount {get;set;} public string Status {get;set;}="Open"; }
+public class DonationCampaign
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+
+    public string Name { get; set; } = "";
+
+    public string Description { get; set; } = "";
+
+    public Guid CrisisId { get; set; }
+
+    public Guid? OrganisationId { get; set; }
+
+    public decimal TargetAmount { get; set; }
+
+    public string Currency { get; set; } = "LKR";
+
+    public string Status { get; set; } = "Open";
+
+    public DateTime StartDate { get; set; } = DateTime.UtcNow;
+
+    public DateTime? EndDate { get; set; }
+
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+    public Guid? CreatedBy { get; set; }
+}
 public class Donation
 {
-    public Guid Id {get;set;}=Guid.NewGuid(); public Guid CampaignId {get;set;} public Guid DonorId {get;set;}
-    public decimal Amount {get;set;} public string Currency {get;set;}="LKR"; public string Kind {get;set;}="Pledge";
-    public string Status {get;set;}="Recorded"; public DateTime At {get;set;}=DateTime.UtcNow;
+    public Guid Id { get; set; } = Guid.NewGuid();
+
+    public Guid CampaignId { get; set; }
+
+    public Guid DonorId { get; set; }
+
+    public decimal Amount { get; set; }
+
+    public string Currency { get; set; } = "LKR";
+
+    public string Kind { get; set; } = "Monetary";
+
+    public string Status { get; set; } = "PledgeRecorded";
+
+    public string? TransactionReference { get; set; }
+
+    public string? PaymentMethod { get; set; }
+
+    public string? Notes { get; set; }
+
+    public DateTime At { get; set; } = DateTime.UtcNow;
+
+    public DateTime? ReceivedAt { get; set; }
+
+    public Guid? ConfirmedBy { get; set; }
 }
 public class Notification
 {
     public Guid Id {get;set;}=Guid.NewGuid(); public Guid RecipientId {get;set;} public string Title {get;set;}="";
     public string Message {get;set;}=""; public string Language {get;set;}="en";
     public bool Read {get;set;}=false; public DateTime At {get;set;}=DateTime.UtcNow;
+    public string? EventKey { get; set; }
 }
 public class OutboxMessage
 {
@@ -118,6 +166,19 @@ public class OutboxMessage
     public string Status {get;set;}="Pending"; public int Attempts {get;set;}=0;
     public DateTime CreatedAt {get;set;}=DateTime.UtcNow; public DateTime? NextAttemptAt {get;set;}
     public string? LastError {get;set;}
+    public string Channel { get; set; } = "Email";
+
+public string Language { get; set; } = "en";
+
+public string? ProviderMessageId { get; set; }
+
+public DateTime? SentAt { get; set; }
+
+public DateTime? LockedUntil { get; set; }
+
+public Guid? ClaimToken { get; set; }
+
+public Guid? PushSubscriptionId { get; set; }
 }
 public class AuditEvent
 {
