@@ -23,6 +23,26 @@ public class AidDbContext(DbContextOptions<AidDbContext> options) : DbContext(op
     public DbSet<VolunteerTask> VolunteerTasks => Set<VolunteerTask>();
     public DbSet<DonationCampaign> Campaigns => Set<DonationCampaign>();
     public DbSet<Donation> Donations => Set<Donation>();
+    public DbSet<MaterialDonationItem> MaterialDonationItems
+    => Set<MaterialDonationItem>();
+
+public DbSet<DonationAllocation> DonationAllocations
+    => Set<DonationAllocation>();
+
+public DbSet<CampaignExpenditure> CampaignExpenditures
+    => Set<CampaignExpenditure>();
+
+public DbSet<DonationFraudFlag> DonationFraudFlags
+    => Set<DonationFraudFlag>();
+
+public DbSet<DonationReceipt> DonationReceipts
+    => Set<DonationReceipt>();
+
+public DbSet<CommunicationPreference> CommunicationPreferences
+    => Set<CommunicationPreference>();
+
+public DbSet<PushSubscription> PushSubscriptions
+    => Set<PushSubscription>();
     public DbSet<Notification> Notifications => Set<Notification>();
     public DbSet<OutboxMessage> Outbox => Set<OutboxMessage>();
     public DbSet<AuditEvent> Audits => Set<AuditEvent>();
@@ -33,6 +53,45 @@ public class AidDbContext(DbContextOptions<AidDbContext> options) : DbContext(op
 
     protected override void OnModelCreating(ModelBuilder model)
     {
+        model.Entity<DonationAllocation>()
+    .Property(x => x.Amount)
+    .HasPrecision(18, 2);
+
+model.Entity<CampaignExpenditure>()
+    .Property(x => x.Amount)
+    .HasPrecision(18, 2);
+
+model.Entity<DonationReceipt>()
+    .HasIndex(x => x.ReceiptNumber)
+    .IsUnique();
+
+model.Entity<DonationReceipt>()
+    .HasIndex(x => x.DonationId)
+    .IsUnique();
+
+model.Entity<CommunicationPreference>()
+    .HasIndex(x => x.UserId)
+    .IsUnique();
+
+model.Entity<PushSubscription>()
+    .Property(x => x.Endpoint)
+    .HasMaxLength(850);
+
+model.Entity<PushSubscription>()
+    .HasIndex(x => x.Endpoint)
+    .IsUnique();
+
+model.Entity<Notification>()
+    .Property(x => x.EventKey)
+    .HasMaxLength(240);
+
+model.Entity<Notification>()
+    .HasIndex(x => x.EventKey)
+    .IsUnique()
+    .HasFilter("[EventKey] IS NOT NULL");
+
+model.Entity<OutboxMessage>()
+    .HasIndex(x => new { x.Status, x.NextAttemptAt });
         model.Entity<HouseholdProfile>().HasIndex(x => x.UserId).IsUnique();
         model.Entity<AssistanceFeedback>().HasIndex(x => x.RequestId).IsUnique();
         model.Entity<PublicAlert>().HasIndex(x => new { x.CrisisId, x.CreatedAt });
@@ -75,5 +134,46 @@ public class AidDbContext(DbContextOptions<AidDbContext> options) : DbContext(op
         model.Entity<Notification>().HasOne<UserAccount>().WithMany().HasForeignKey(x => x.RecipientId).OnDelete(DeleteBehavior.Restrict);
         model.Entity<OutboxMessage>().HasOne<UserAccount>().WithMany().HasForeignKey(x => x.RecipientId).OnDelete(DeleteBehavior.Restrict);
         model.Entity<AuditEvent>().HasOne<UserAccount>().WithMany().HasForeignKey(x => x.ActorId).OnDelete(DeleteBehavior.Restrict);
+        model.Entity<DonationAllocation>()
+    .HasOne<Donation>()
+    .WithMany()
+    .HasForeignKey(x => x.DonationId)
+    .OnDelete(DeleteBehavior.Restrict);
+
+model.Entity<CampaignExpenditure>()
+    .HasOne<DonationAllocation>()
+    .WithMany()
+    .HasForeignKey(x => x.AllocationId)
+    .OnDelete(DeleteBehavior.Restrict);
+
+model.Entity<MaterialDonationItem>()
+    .HasOne<Donation>()
+    .WithMany()
+    .HasForeignKey(x => x.DonationId)
+    .OnDelete(DeleteBehavior.Restrict);
+
+model.Entity<DonationReceipt>()
+    .HasOne<Donation>()
+    .WithMany()
+    .HasForeignKey(x => x.DonationId)
+    .OnDelete(DeleteBehavior.Restrict);
+
+model.Entity<DonationFraudFlag>()
+    .HasOne<Donation>()
+    .WithMany()
+    .HasForeignKey(x => x.DonationId)
+    .OnDelete(DeleteBehavior.Restrict);
+
+model.Entity<CommunicationPreference>()
+    .HasOne<UserAccount>()
+    .WithMany()
+    .HasForeignKey(x => x.UserId)
+    .OnDelete(DeleteBehavior.Restrict);
+
+model.Entity<PushSubscription>()
+    .HasOne<UserAccount>()
+    .WithMany()
+    .HasForeignKey(x => x.UserId)
+    .OnDelete(DeleteBehavior.Restrict);
     }
 }
