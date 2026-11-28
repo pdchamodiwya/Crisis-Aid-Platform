@@ -482,5 +482,540 @@ public static class DonationEndpoints
 
             return Results.Ok(items);
         });
+
+        // ==========================================
+        // 07 - CONFIRM DONATION
+        // ==========================================
+
+        api.MapPost("/donations/{id:guid}/confirm", async (
+            Guid id,
+            ConfirmDonationInput dto,
+            HttpContext ctx,
+            AidDbContext db) =>
+        {
+            try
+            {
+                // Start a transaction to protect
+                // financial records from concurrent updates.
+
+                await using var tx =
+                    await db.Database.BeginTransactionAsync(
+                        System.Data.IsolationLevel.Serializable);
+
+                // 1. Check the authenticated officer.
+
+                var actorId = Access.UserId(ctx.User);
+                var role = Access.Role(ctx.User);
+
+                var account = await db.Users
+                    .FindAsync(actorId);
+
+                if (account == null ||
+                    !account.IsActive ||
+                    account.Role != role)
+                {
+                    return Results.Unauthorized();
+                }
+
+                // 2. Find the donation.
+
+                var donation = await db.Donations
+                    .FindAsync(id);
+
+                if (donation == null)
+                {
+                    return Results.NotFound(new
+                    {
+                        error = "Donation not found."
+                    });
+                }
+
+                // 3. Find the associated campaign.
+
+                var campaign = await db.Campaigns
+                    .FindAsync(donation.CampaignId);
+
+                if (campaign == null)
+                {
+                    return Results.NotFound(new
+                    {
+                        error = "Campaign not found."
+                    });
+                }
+
+                // 4. Check organisation permissions.
+
+                if (role != Roles.Admin &&
+                    (account.OrganisationId == null ||
+                     account.OrganisationId !=
+                         campaign.OrganisationId))
+                {
+                    return Results.Forbid();
+                }
+
+                // 5. Prevent repeated confirmation.
+
+                if (donation.Status == "Confirmed")
+                {
+                    return Results.Conflict(new
+                    {
+                        error =
+                            "Donation has already been confirmed."
+                    });
+                }
+
+                // 6. Validate the current donation status.
+
+                if (donation.Status != "PledgeRecorded" &&
+                    donation.Status != "UnderReview")
+                {
+                    return Results.Conflict(new
+                    {
+                        error =
+                            "This donation cannot be confirmed.",
+                        currentStatus = donation.Status
+                    });
+                }
+
+                // 7. Require actual receipt verification.
+
+                if (!dto.ReceiptVerified)
+                {
+                    return Results.BadRequest(new
+                    {
+                        error =
+                            "Verify that the payment or goods have been received before confirming."
+                    });
+                }
+
+                if (string.IsNullOrWhiteSpace(dto.Notes) ||
+                    dto.Notes.Length > 1000)
+                {
+                    return Results.BadRequest(new
+                    {
+                        error =
+                            "Valid confirmation notes are required."
+                    });
+                }
+
+                // 8. Check for unresolved investigations.
+
+                var unresolvedFlags =
+                    await db.DonationFraudFlags.AnyAsync(x =>
+                        x.DonationId == id &&
+                        (x.Status == "Open" ||
+                         x.Status == "Investigating"));
+
+                if (unresolvedFlags)
+                {
+                    return Results.Conflict(new
+                    {
+                        error =
+                            "Resolve outstanding donation investigations before confirmation."
+                    });
+                }
+
+                MaterialDonationItem? materialItem = null;
+
+                // ======================================
+                // 9. MONETARY DONATION CONFIRMATION
+                // ======================================
+
+                if (donation.Kind == "Monetary")
+                {
+                    if (donation.Amount <= 0)
+                    {
+                        return Results.BadRequest(new
+                        {
+                            error =
+                                "Invalid monetary donation amount."
+                        });
+                    }
+
+                    var reference =
+                        dto.TransactionReference?
+                            .Trim()
+                            .ToUpperInvariant();
+
+                    if (string.IsNullOrWhiteSpace(reference) ||
+                        reference.Length > 150 ||
+                        string.IsNullOrWhiteSpace(
+                            dto.PaymentMethod))
+                    {
+                        return Results.BadRequest(new
+                        {
+                            error =
+                                "A valid transaction reference and payment method are required."
+                        });
+                    }
+
+                    var allowedPaymentMethods = new[]
+                    {
+                        "BankTransfer",
+                        "Cash",
+                        "Card",
+                        "Other"
+                    };
+
+                    if (!allowedPaymentMethods.Contains(
+                        dto.PaymentMethod))
+                    {
+                        return Results.BadRequest(new
+                        {
+                            error = "Invalid payment method."
+                        });
+                    }
+
+                    // Detect a transaction reference
+                    // already used for another confirmed
+                    // monetary donation.
+
+                    bool duplicateReference =
+                        await db.Donations.AnyAsync(x =>
+                            x.Id != donation.Id &&
+                            x.Kind == "Monetary" &&
+                            x.Status == "Confirmed" &&
+                            x.TransactionReference != null &&
+                            x.TransactionReference.ToUpper()
+                                == reference);
+
+                    if (duplicateReference)
+                    {
+                        donation.Status = "UnderReview";
+
+                        donation.TransactionReference =
+                            reference;
+
+                        donation.PaymentMethod =
+                            dto.PaymentMethod;
+
+                        var flag = new DonationFraudFlag
+                        {
+                            DonationId = donation.Id,
+                            Reason =
+                                "Possible duplicate transaction reference",
+                            Severity = "High",
+                            Status = "Open"
+                        };
+
+                        db.DonationFraudFlags.Add(flag);
+
+                        TraceLog.Add(
+                            db,
+                            "Donation",
+                            donation.Id,
+                            "DuplicateReferenceFlagged",
+                            actorId);
+
+                        await db.SaveChangesAsync();
+                        await tx.CommitAsync();
+
+                        return Results.Conflict(new
+                        {
+                            error =
+                                "Transaction reference has already been used. Donation flagged for investigation.",
+                            status = donation.Status
+                        });
+                    }
+
+                    // Save the verified payment information.
+
+                    donation.TransactionReference =
+                        reference;
+
+                    donation.PaymentMethod =
+                        dto.PaymentMethod;
+                }
+
+                // ======================================
+                // 10. MATERIAL DONATION CONFIRMATION
+                // ======================================
+
+                else if (donation.Kind == "Material")
+                {
+                    var items =
+                        await db.MaterialDonationItems
+                            .Where(x =>
+                                x.DonationId == donation.Id)
+                            .ToListAsync();
+
+                    // The current prototype supports
+                    // one material item per donation.
+
+                    if (items.Count != 1)
+                    {
+                        return Results.Conflict(new
+                        {
+                            error =
+                                "Expected one material item for this donation."
+                        });
+                    }
+
+                    materialItem = items[0];
+
+                    if (!dto.ReceivedQuantity.HasValue ||
+                        dto.ReceivedQuantity.Value <= 0 ||
+                        dto.ReceivedQuantity.Value >
+                            materialItem.Quantity)
+                    {
+                        return Results.BadRequest(new
+                        {
+                            error =
+                                "Received quantity must be positive and cannot exceed the pledged quantity.",
+                            pledgedQuantity =
+                                materialItem.Quantity
+                        });
+                    }
+
+                    // Record the actual received quantity.
+
+                    materialItem.ReceivedQuantity =
+                        dto.ReceivedQuantity.Value;
+                }
+
+                else
+                {
+                    return Results.BadRequest(new
+                    {
+                        error = "Unsupported donation type."
+                    });
+                }
+
+                // ======================================
+                // 11. CONFIRM THE DONATION
+                // ======================================
+
+                donation.Status = "Confirmed";
+
+                donation.ConfirmedBy = actorId;
+
+                donation.ReceivedAt = DateTime.UtcNow;
+
+                // ======================================
+                // 12. RECORD AUDIT INFORMATION
+                // ======================================
+
+                TraceLog.Add(
+                    db,
+                    "Donation",
+                    donation.Id,
+                    "Confirmed",
+                    actorId,
+                    new
+                    {
+                        donation.Kind,
+                        donation.Amount,
+                        donation.Currency,
+                        donation.PaymentMethod,
+                        receivedQuantity =
+                            materialItem?.ReceivedQuantity,
+                        confirmationNotes =
+                            dto.Notes.Trim()
+                    });
+
+                // ======================================
+                // 13. QUEUE DONOR NOTIFICATION
+                // ======================================
+
+                TraceLog.Queue(
+                    db,
+                    donation.DonorId,
+                    $"donation:{donation.Id}:confirmed",
+                    "Donation confirmed",
+                    "Your donation has been received and confirmed. Thank you for supporting humanitarian assistance.");
+
+                // ======================================
+                // 14. SAVE ALL CHANGES
+                // ======================================
+
+                await db.SaveChangesAsync();
+
+                await tx.CommitAsync();
+
+                return Results.Ok(new
+                {
+                    message =
+                        "Donation confirmed successfully.",
+                    donation,
+                    materialItem
+                });
+            }
+            catch (Exception ex) when (
+                ex is Microsoft.Data.SqlClient.SqlException
+                {
+                    Number: 1205 or 2601 or 2627
+                } ||
+                ex is DbUpdateException
+                {
+                    InnerException:
+                        Microsoft.Data.SqlClient.SqlException
+                        {
+                            Number: 1205 or 2601 or 2627
+                        }
+                })
+            {
+                return Results.Conflict(new
+                {
+                    error =
+                        "A concurrent update occurred. Reload the donation and try again."
+                });
+            }
+        })
+        .RequireAuthorization(p =>
+            p.RequireRole(
+                Roles.Funding,
+                Roles.Admin));
+
+
+        // ==========================================
+        // 08 - REJECT DONATION
+        // ==========================================
+
+        api.MapPost("/donations/{id:guid}/reject", async (
+            Guid id,
+            RejectDonationInput dto,
+            HttpContext ctx,
+            AidDbContext db) =>
+        {
+            if (string.IsNullOrWhiteSpace(dto.Reason) ||
+                dto.Reason.Length > 1000)
+            {
+                return Results.BadRequest(new
+                {
+                    error =
+                        "A valid rejection reason is required."
+                });
+            }
+
+            try
+            {
+                await using var tx =
+                    await db.Database.BeginTransactionAsync(
+                        System.Data.IsolationLevel.Serializable);
+
+                var actorId = Access.UserId(ctx.User);
+                var role = Access.Role(ctx.User);
+
+                var account = await db.Users
+                    .FindAsync(actorId);
+
+                if (account == null ||
+                    !account.IsActive ||
+                    account.Role != role)
+                {
+                    return Results.Unauthorized();
+                }
+
+                var donation = await db.Donations
+                    .FindAsync(id);
+
+                if (donation == null)
+                {
+                    return Results.NotFound(new
+                    {
+                        error = "Donation not found."
+                    });
+                }
+
+                var campaign = await db.Campaigns
+                    .FindAsync(donation.CampaignId);
+
+                if (campaign == null)
+                {
+                    return Results.NotFound(new
+                    {
+                        error = "Campaign not found."
+                    });
+                }
+
+                // Validate organisation ownership.
+
+                if (role != Roles.Admin &&
+                    (account.OrganisationId == null ||
+                     account.OrganisationId !=
+                         campaign.OrganisationId))
+                {
+                    return Results.Forbid();
+                }
+
+                // Only unconfirmed donations
+                // may be rejected.
+
+                if (donation.Status != "PledgeRecorded" &&
+                    donation.Status != "UnderReview")
+                {
+                    return Results.Conflict(new
+                    {
+                        error =
+                            "This donation cannot be rejected.",
+                        currentStatus = donation.Status
+                    });
+                }
+
+                // Update donation status.
+
+                donation.Status = "Rejected";
+
+                // Record the rejection reason.
+
+                TraceLog.Add(
+                    db,
+                    "Donation",
+                    donation.Id,
+                    "Rejected",
+                    actorId,
+                    new
+                    {
+                        reason = dto.Reason.Trim()
+                    });
+
+                // Notify the donor.
+
+                TraceLog.Queue(
+                    db,
+                    donation.DonorId,
+                    $"donation:{donation.Id}:rejected",
+                    "Donation update",
+                    "Your donation could not be accepted. Please contact the funding officer for further information.");
+
+                await db.SaveChangesAsync();
+
+                await tx.CommitAsync();
+
+                return Results.Ok(new
+                {
+                    message =
+                        "Donation rejected successfully.",
+                    donationId = donation.Id,
+                    status = donation.Status
+                });
+            }
+            catch (Exception ex) when (
+                ex is Microsoft.Data.SqlClient.SqlException
+                {
+                    Number: 1205 or 2601 or 2627
+                } ||
+                ex is DbUpdateException
+                {
+                    InnerException:
+                        Microsoft.Data.SqlClient.SqlException
+                        {
+                            Number: 1205 or 2601 or 2627
+                        }
+                })
+            {
+                return Results.Conflict(new
+                {
+                    error =
+                        "A concurrent update occurred. Reload the donation and try again."
+                });
+            }
+        })
+        .RequireAuthorization(p =>
+            p.RequireRole(
+                Roles.Funding,
+                Roles.Admin));
+
+
     }
 }
