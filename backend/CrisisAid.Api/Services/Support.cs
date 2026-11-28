@@ -12,6 +12,12 @@ public static class Access
     public static Guid UserId(ClaimsPrincipal principal) => Guid.Parse(principal.FindFirstValue(ClaimTypes.NameIdentifier)!);
     public static string Role(ClaimsPrincipal principal) => principal.FindFirstValue(ClaimTypes.Role) ?? "";
     public static bool Staff(ClaimsPrincipal principal) => Roles.Staff.Split(',').Contains(Role(principal));
+
+        public static bool InRoles(ClaimsPrincipal principal, params string[] roles) => roles.Contains(Role(principal));
+    public static bool CanManageVolunteers(ClaimsPrincipal principal) =>
+        InRoles(principal, Roles.VolunteerCoordinator, Roles.Coordinator, Roles.Admin);
+    public static bool CanSeeAllDonations(ClaimsPrincipal principal) =>
+        InRoles(principal, Roles.Funding, Roles.Coordinator, Roles.Admin);
     public static bool CanRead(ClaimsPrincipal principal, AssistanceRequest req) => Staff(principal) || req.CitizenId == UserId(principal);
     public static bool Coordinates(double lat, double lon) => lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180;
 }

@@ -225,7 +225,7 @@ public static class DonationEndpoints
             IQueryable<Donation> q =
                 db.Donations.AsNoTracking();
 
-            if (!Access.Staff(ctx.User))
+            if (!Access.CanSeeAllDonations(ctx.User))
             {
                 q = q.Where(x =>
                     x.DonorId ==
@@ -1015,6 +1015,141 @@ public static class DonationEndpoints
             p.RequireRole(
                 Roles.Funding,
                 Roles.Admin));
+
+                api.MapPost("/donation-allocations", async (
+    DonationAllocationInput dto,
+    HttpContext ctx,
+    AidDbContext db,
+    DonationService service) =>
+{
+    if (dto.Amount <= 0 ||
+        decimal.Round(dto.Amount, 2) != dto.Amount ||
+        string.IsNullOrWhiteSpace(dto.Purpose) ||
+        !new[] {
+            "Food", "Water", "Medicine",
+            "Transport", "Shelter", "Other"
+        }.Contains(dto.Category))
+    {
+        return Results.BadRequest(new
+        {
+            error = "Invalid allocation details."
+        });
+    }
+
+    await using var transaction =
+        await db.Database.BeginTransactionAsync(
+            System.Data.IsolationLevel.Serializable);
+
+    var donation = await db.Donations
+        .FindAsync(dto.DonationId);
+
+    if (donation == null)
+        return Results.NotFound();
+
+    if (donation.Status != "Confirmed" ||
+        donation.Kind != "Monetary")
+    {
+        return Results.Conflict(new
+        {
+            error = "Only confirmed monetary donations can be allocated."
+        });
+    }
+
+    var campaign = await db.Campaigns
+        .FindAsync(donation.CampaignId);
+
+    var actor = await db.Users
+        .FindAsync(Access.UserId(ctx.User));
+
+    if (campaign == null || actor == null)
+        return Results.NotFound();
+
+    if (Access.Role(ctx.User) != Roles.Admin &&
+        (actor.OrganisationId == null ||
+         campaign.OrganisationId != actor.OrganisationId))
+    {
+        return Results.Forbid();
+    }
+
+    var available =
+        await service.GetAvailableFundsAsync(donation.Id);
+
+    if (dto.Amount > available)
+    {
+        return Results.Conflict(new
+        {
+            error = "Insufficient available funds.",
+            available
+        });
+    }
+
+    var allocation = new DonationAllocation
+    {
+        DonationId = donation.Id,
+        Category = dto.Category,
+        Purpose = dto.Purpose.Trim(),
+        Amount = dto.Amount,
+        AllocatedBy = actor.Id,
+        Status = "Approved"
+    };
+
+    db.DonationAllocations.Add(allocation);
+
+    TraceLog.Add(
+        db, "DonationAllocation",
+        allocation.Id, "Approved", actor.Id);
+
+    await db.SaveChangesAsync();
+    await transaction.CommitAsync();
+
+    return Results.Created(
+        $"/api/donation-allocations/{allocation.Id}",
+        allocation);
+})
+.RequireAuthorization(p =>
+    p.RequireRole(Roles.Funding, Roles.Admin));
+
+    api.MapGet("/donation-allocations", async (
+    HttpContext ctx,
+    AidDbContext db) =>
+{
+    var actor = await db.Users
+        .FindAsync(Access.UserId(ctx.User));
+
+    if (actor == null)
+        return Results.Forbid();
+
+    var admin = Access.Role(ctx.User) == Roles.Admin;
+
+    var query =
+        from a in db.DonationAllocations
+        join d in db.Donations
+            on a.DonationId equals d.Id
+        join c in db.Campaigns
+            on d.CampaignId equals c.Id
+        where admin ||
+            (actor.OrganisationId != null &&
+             c.OrganisationId == actor.OrganisationId)
+        select new
+        {
+            a.Id,
+            a.DonationId,
+            a.Category,
+            a.Purpose,
+            a.Amount,
+            a.Status,
+            a.AllocatedAt,
+            campaignName = c.Name,
+            currency = d.Currency,
+            spent = db.CampaignExpenditures
+                .Where(e => e.AllocationId == a.Id)
+                .Sum(e => (decimal?)e.Amount) ?? 0
+        };
+
+    return Results.Ok(await query.ToListAsync());
+})
+.RequireAuthorization(p =>
+    p.RequireRole(Roles.Funding, Roles.Admin));
 
 
     }

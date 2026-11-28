@@ -1,3 +1,4 @@
+
 using CrisisAid.Api.Data;
 using Microsoft.EntityFrameworkCore;
 
@@ -32,4 +33,25 @@ public class DonationService
 
         return Math.Max(0m, donation.Amount - allocatedAmount);
     }
+
+    public async Task<decimal> GetRemainingAllocationAsync(
+        Guid allocationId)
+    {
+        var allocation = await _db.DonationAllocations
+            .AsNoTracking()
+            .SingleOrDefaultAsync(x => x.Id == allocationId);
+
+        if (allocation == null ||
+            allocation.Status != "Approved")
+        {
+            return 0m;
+        }
+
+        var spent = await _db.CampaignExpenditures
+            .Where(x => x.AllocationId == allocationId)
+            .SumAsync(x => (decimal?)x.Amount) ?? 0m;
+
+        return Math.Max(0m, allocation.Amount - spent);
+    }
 }
+
