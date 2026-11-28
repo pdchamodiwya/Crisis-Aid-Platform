@@ -58,6 +58,7 @@ builder.Services.AddSwaggerGen(o => {
     o.AddSecurityRequirement(new OpenApiSecurityRequirement { {
         new OpenApiSecurityScheme { Reference = new OpenApiReference { Type = ReferenceType.SecurityScheme, Id = "Bearer" } }, Array.Empty<string>() } });
 });
+builder.Services.AddScoped<DonationService>();
 var app = builder.Build();
 app.UseExceptionHandler(error => error.Run(async ctx => {
     ctx.Response.StatusCode = 500;
@@ -115,6 +116,98 @@ app.MapPost("/api/auth/login", async (LoginDto input, AidDbContext db, IPassword
 var api = app.MapGroup("/api").RequireAuthorization();
 ExtendedModules.Map(api);
 DonationEndpoints.Map(api);
+api.MapPost("/donation-allocations", async (
+    DonationAllocationInput dto,
+    HttpContext ctx,
+    AidDbContext db,
+    DonationService service) =>
+{
+    if (dto.Amount <= 0 ||
+        decimal.Round(dto.Amount, 2) != dto.Amount ||
+        string.IsNullOrWhiteSpace(dto.Purpose) ||
+        !new[] { "Food", "Water", "Medicine",
+                 "Transport", "Shelter", "Other" }
+            .Contains(dto.Category))
+    {
+        return Results.BadRequest(new
+        {
+            error = "Invalid allocation details."
+        });
+    }
+
+    await using var transaction =
+        await db.Database.BeginTransactionAsync(
+            System.Data.IsolationLevel.Serializable);
+
+    var donation = await db.Donations
+        .FindAsync(dto.DonationId);
+
+    if (donation == null)
+        return Results.NotFound();
+
+    if (donation.Kind != "Monetary" ||
+        donation.Status != "Confirmed")
+    {
+        return Results.Conflict(new
+        {
+            error = "Only confirmed monetary donations can be allocated."
+        });
+    }
+
+    var campaign = await db.Campaigns
+        .FindAsync(donation.CampaignId);
+
+    var actor = await db.Users
+        .FindAsync(Access.UserId(ctx.User));
+
+    if (campaign == null || actor == null)
+        return Results.NotFound();
+
+    if (Access.Role(ctx.User) != Roles.Admin &&
+        (actor.OrganisationId == null ||
+         campaign.OrganisationId != actor.OrganisationId))
+    {
+        return Results.Forbid();
+    }
+
+    var available = await service
+        .GetAvailableFundsAsync(dto.DonationId);
+
+    if (dto.Amount > available)
+    {
+        return Results.Conflict(new
+        {
+            error = "Insufficient available funds.",
+            available
+        });
+    }
+
+    var allocation = new DonationAllocation
+    {
+        DonationId = dto.DonationId,
+        Category = dto.Category,
+        Purpose = dto.Purpose,
+        Amount = dto.Amount,
+        AllocatedBy = actor.Id
+    };
+
+    db.DonationAllocations.Add(allocation);
+
+    TraceLog.Add(
+        db, "DonationAllocation",
+        allocation.Id, "Approved",
+        actor.Id,
+        new { allocation.Amount });
+
+    await db.SaveChangesAsync();
+    await transaction.CommitAsync();
+
+    return Results.Created(
+        $"/api/donation-allocations/{allocation.Id}",
+        allocation);
+})
+.RequireAuthorization(p =>
+    p.RequireRole(Roles.Funding, Roles.Admin));
 api.MapGet("/me", async (HttpContext ctx, AidDbContext db) => {
     var id = Access.UserId(ctx.User);
     return await db.Users.Where(x => x.Id == id).Select(x => new { x.Id, x.DisplayName, x.Email, x.Role, x.OrganisationId }).FirstOrDefaultAsync() is { } me
