@@ -91,4 +91,3 @@ input:focus-visible,select:focus-visible,textarea:focus-visible,button:focus-vis
 .ver-confirm-form{margin-top:1rem;display:flex;flex-direction:column;gap:0.75rem}
 .input-group{display:flex;gap:0.5rem}
 .input-group input{flex:1}
-

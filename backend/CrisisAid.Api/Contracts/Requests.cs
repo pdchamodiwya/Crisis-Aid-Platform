@@ -5,7 +5,7 @@ public record LoginDto(string Email, string Password);
 public record CrisisDto(string Name, string Type, string Country, string Area);
 public record AssistanceDto(Guid CrisisId, string Category, string Description, string Urgency,
     int PeopleAffected, int RequestedQuantity, double Latitude, double Longitude,
-    bool MedicalEmergency = false, bool AccessibilityNeeded = false, string? EvidenceUrl = null);
+    bool MedicalEmergency = false, bool AccessibilityNeeded = false, string? EvidenceUrl = null, string Unit = "unit-unspecified");
 public record ReviewDto(string Decision, int? FinalPriority, string Reason, string? FinalCategory = null);
 public record RequestStatusDto(string Status, string Notes);
 public record ResourceDto(string Name, string Category, string Unit, int AvailableQuantity, string Area,

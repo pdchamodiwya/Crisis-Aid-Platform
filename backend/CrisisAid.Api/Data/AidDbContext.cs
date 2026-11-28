@@ -136,6 +136,25 @@ public class AidDbContext(
     public DbSet<PartnerOffer> PartnerOffers
         => Set<PartnerOffer>();
 
+    // ==========================================
+    // MEMBER 03 - RESOURCE AND LOGISTICS
+    // ==========================================
+
+    public DbSet<StockMovement> StockMovements
+        => Set<StockMovement>();
+
+    public DbSet<DispatchRecord> Dispatches
+        => Set<DispatchRecord>();
+
+    public DbSet<PartnerResourceRequest> PartnerRequests
+        => Set<PartnerResourceRequest>();
+
+    public DbSet<StockTransfer> StockTransfers
+        => Set<StockTransfer>();
+
+    public DbSet<DeliveryVerification> DeliveryVerifications
+        => Set<DeliveryVerification>();
+
 
     protected override void OnModelCreating(ModelBuilder model)
     {

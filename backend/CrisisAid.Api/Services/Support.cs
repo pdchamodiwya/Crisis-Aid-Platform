@@ -1,3 +1,4 @@
+
 using System.Security.Claims;
 using System.Text.Json;
 using CrisisAid.Api.Data;
@@ -20,20 +21,23 @@ public static class Access
     public static bool CanRead(ClaimsPrincipal principal, AssistanceRequest req) => Staff(principal) || req.CitizenId == UserId(principal);
     public static bool Coordinates(double lat, double lon) => lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180;
 }
+
 public static class TraceLog
 {
     public static void Add(AidDbContext db, string entity, Guid id, string action, Guid? actor, object? details = null) =>
         db.Audits.Add(new AuditEvent { EntityType = entity, EntityId = id, EventType = action, ActorId = actor,
             DetailJson = JsonSerializer.Serialize(details ?? new { }) });
+
     public static void History(AidDbContext db, Guid req, Guid? actor, string action, string notes) =>
         db.RequestHistories.Add(new RequestHistory { RequestId = req, ActorId = actor, Action = action, Notes = notes });
+
     public static void Queue(AidDbContext db, Guid recipient, string key, string title, string message, string language = "en")
     {
-        // Caller must use a deterministic key for each logical event. Unique DB index prevents duplicates.
         db.Notifications.Add(new Notification { RecipientId = recipient, Title = title, Message = message, Language = language });
         db.Outbox.Add(new OutboxMessage { RecipientId = recipient, EventKey = key, Subject = title, Body = message });
     }
 }
+
 public static class Distances
 {
     public static double Km(double a, double b, double c, double d)
@@ -45,6 +49,27 @@ public static class Distances
         return 2 * r * Math.Asin(Math.Min(1, Math.Sqrt(x)));
     }
 }
+
+public class ResourceMatchResult
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; } = "";
+    public string Category { get; set; } = "";
+    public int AvailableQuantity { get; set; }
+    public int TotalQuantity { get; set; }
+    public int ReservedQuantity { get; set; }
+    public string Unit { get; set; } = "";
+    public string Area { get; set; } = "";
+    public string Condition { get; set; } = "";
+    public string BatchNumber { get; set; } = "";
+    public double DistanceKm { get; set; }
+    public bool AvailableForFullRequest { get; set; }
+    public int AllocatableQuantity { get; set; }
+    public int RemainingUnmetDemand { get; set; }
+    public double Score { get; set; }
+    public string Rationale { get; set; } = "";
+}
+
 public static class MatchEngine
 {
     public static IEnumerable<object> ResourcesFor(AssistanceRequest req, IEnumerable<ResourceItem> resources) =>
@@ -58,15 +83,13 @@ public static class MatchEngine
             bool isFull = r.AvailableQuantity >= req.RequestedQuantity;
             int allocatable = Math.Min(r.AvailableQuantity, req.RequestedQuantity);
             int unmet = Math.Max(0, req.RequestedQuantity - r.AvailableQuantity);
-            
-            // Condition score bonus
+
             int conditionScore = r.Condition.ToLowerInvariant() switch {
                 "good" or "new" or "excellent" => 15,
                 "fair" => 5,
                 _ => 0
             };
 
-            // Expiry buffer score
             int expiryScore = 0;
             if (r.ExpiresAt.HasValue)
             {
@@ -74,7 +97,7 @@ public static class MatchEngine
                 if (daysLeft > 30) expiryScore = 10;
                 else if (daysLeft > 7) expiryScore = 5;
             }
-            else expiryScore = 10; // non-perishable
+            else expiryScore = 10;
 
             double score = (isFull ? 45 : 15) +
                 (req.AccessibilityNeeded && r.Accessible ? 15 : 0) +
@@ -91,17 +114,18 @@ public static class MatchEngine
 
             string rationale = string.Join("; ", reasons) + ".";
 
-            return new {
-                r.Id,
-                r.Name,
-                r.Category,
-                r.AvailableQuantity,
-                r.TotalQuantity,
-                r.ReservedQuantity,
-                r.Unit,
-                r.Area,
-                r.Condition,
-                r.BatchNumber,
+            return new ResourceMatchResult
+            {
+                Id = r.Id,
+                Name = r.Name,
+                Category = r.Category,
+                AvailableQuantity = r.AvailableQuantity,
+                TotalQuantity = r.TotalQuantity,
+                ReservedQuantity = r.ReservedQuantity,
+                Unit = r.Unit,
+                Area = r.Area,
+                Condition = r.Condition,
+                BatchNumber = r.BatchNumber,
                 DistanceKm = distanceKm,
                 AvailableForFullRequest = isFull,
                 AllocatableQuantity = allocatable,
@@ -110,5 +134,5 @@ public static class MatchEngine
                 Rationale = rationale
             };
         })
-        .OrderByDescending(r => r.Score).Cast<object>();
+        .OrderByDescending(r => ((ResourceMatchResult)r).Score);
 }

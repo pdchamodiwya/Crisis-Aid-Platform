@@ -1,9 +1,9 @@
 # CrisisAid — Module Technical Contribution Document
 ## Member 03: Resource, Logistics and Partner Coordination
 
-**Role:** Senior Full-Stack Software Engineer & Module Lead  
-**Module:** Resource Inventory, Stock Movements, Shortage Management, Logistics Dispatch, Partner Transfers & QR Delivery Verification  
-**Academic Unit:** NSBM | SE205.3 Software Architecture | Coursework 2026  
+**Role:** Senior Full-Stack Software Engineer & Module Lead
+**Module:** Resource Inventory, Stock Movements, Shortage Management, Logistics Dispatch, Partner Transfers & QR Delivery Verification
+**Academic Unit:** NSBM | SE205.3 Software Architecture | Coursework 2026
 
 ---
 

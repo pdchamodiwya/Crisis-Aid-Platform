@@ -7,6 +7,7 @@ using CrisisAid.Api.Contracts;
 using CrisisAid.Api.Data;
 using CrisisAid.Api.Domain;
 using CrisisAid.Api.Services;
+using CrisisAid.Api.Services.AI;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -24,6 +25,9 @@ builder.Services.AddHttpClient("ai", c => c.Timeout = TimeSpan.FromSeconds(6));
 builder.Services.AddHttpClient("google-oauth", c => c.Timeout = TimeSpan.FromSeconds(15));
 builder.Services.AddHttpClient("map", c => { c.Timeout = TimeSpan.FromSeconds(5); c.DefaultRequestHeaders.UserAgent.ParseAdd("CrisisAidStudentPrototype/1.0 (coursework demo)"); });
 builder.Services.AddScoped<IAiDecisionService, AiDecisionService>();
+builder.Services.AddScoped<IAiClassificationService, AiClassificationService>();
+builder.Services.AddScoped<IAiDuplicateDetectionService, AiDuplicateDetectionService>();
+builder.Services.AddScoped<IAiForecastService, AiForecastService>();
 builder.Services.AddScoped<IRequestRepository, EfRequestRepository>();
 builder.Services.AddSingleton<IResourceMatchStrategyFactory, ResourceMatchStrategyFactory>();
 builder.Services.AddRateLimiter(opts => {
@@ -236,6 +240,7 @@ requests.MapPost("/", async (AssistanceDto dto, HttpContext ctx, AidDbContext db
     var req = new AssistanceRequest { CitizenId = Access.UserId(ctx.User), CrisisId = dto.CrisisId,
         Category = dto.Category, Description = dto.Description, Urgency = dto.Urgency,
         PeopleAffected = dto.PeopleAffected, RequestedQuantity = dto.RequestedQuantity,
+        Unit = string.IsNullOrWhiteSpace(dto.Unit) ? "unit-unspecified" : dto.Unit.Trim(),
         MedicalEmergency = dto.MedicalEmergency, AccessibilityNeeded = dto.AccessibilityNeeded,
         Latitude = dto.Latitude, Longitude = dto.Longitude, EvidenceUrl = dto.EvidenceUrl };
     db.Requests.Add(req);
@@ -252,24 +257,81 @@ requests.MapGet("/{id:guid}", async (Guid id, HttpContext ctx, AidDbContext db) 
     var recommendations = await db.AiRecommendations.Where(x => x.RequestId == id).OrderByDescending(x => x.CreatedAt).ToListAsync();
     return Results.Ok(new { request = req, history, recommendations });
 });
-requests.MapPost("/{id:guid}/assess", async (Guid id, HttpContext ctx, AidDbContext db, IAiDecisionService ai, CancellationToken ct) => {
+requests.MapPost("/{id:guid}/assess", async (
+    Guid id,
+    HttpContext ctx,
+    AidDbContext db,
+    IAiDecisionService ai,
+    IAiClassificationService classifier,
+    IAiDuplicateDetectionService duplicateDetector,
+    CancellationToken ct) =>
+{
     var req = await db.Requests.FindAsync([id], ct);
     if (req == null) return Results.NotFound();
+
     var result = await ai.EvaluateAsync(req, ct);
-    var duplicateCandidates = await db.Requests.Where(r => r.Id != id && r.CrisisId == req.CrisisId &&
-        r.Category == req.Category && r.Status != "Closed").OrderByDescending(r => r.CreatedAt).Take(50).ToListAsync(ct);
-    var duplicate = duplicateCandidates.FirstOrDefault(x =>
-        (x.CitizenId == req.CitizenId && x.Description.Trim().Equals(req.Description.Trim(), StringComparison.OrdinalIgnoreCase)) ||
-        (Distances.Km(x.Latitude, x.Longitude, req.Latitude, req.Longitude) < 0.3 &&
-         x.Description.Split(' ', StringSplitOptions.RemoveEmptyEntries).Intersect(req.Description.Split(' ', StringSplitOptions.RemoveEmptyEntries), StringComparer.OrdinalIgnoreCase).Count() >= 4));
-    var rec = new AiRecommendation { RequestId = id, RecommendedCategory = result.Category,
-        Priority = result.Priority, Confidence = result.Confidence, Rationale = result.Rationale,
-        Model = result.Model, PossibleDuplicateId = duplicate?.Id.ToString() };
+    var classification = classifier.Classify(req.Category, req.Description);
+
+    var duplicateCutoff = DateTime.UtcNow.AddDays(-14);
+    var duplicateCandidates = await db.Requests
+        .Where(r => r.Id != id &&
+                    r.CrisisId == req.CrisisId &&
+                    r.Status != "Closed" &&
+                    r.CreatedAt >= duplicateCutoff)
+        .OrderByDescending(r => r.CreatedAt)
+        .Take(100)
+        .ToListAsync(ct);
+
+    var duplicate = duplicateCandidates
+        .Select(candidate => duplicateDetector.Compare(req, candidate))
+        .Where(x => x.IsPotentialDuplicate)
+        .OrderByDescending(x => x.SimilarityScore)
+        .FirstOrDefault();
+
+    var combinedConfidence = Math.Min(
+        result.Confidence,
+        classification.Confidence
+    );
+
+    var combinedRationale = string.Join(" ",
+        result.Rationale,
+        classification.Rationale,
+        duplicate?.Reason ?? "No potential duplicate met the review threshold."
+    );
+
+    var rec = new AiRecommendation
+    {
+        RequestId = id,
+        RecommendedCategory = classification.RecommendedCategory,
+        Priority = result.Priority,
+        Confidence = combinedConfidence,
+        Rationale = combinedRationale,
+        Model = $"{result.Model}+{classification.Strategy}+jaccard-location-time-v1",
+        PossibleDuplicateId = duplicate?.SecondRequestId.ToString()
+    };
+
     db.AiRecommendations.Add(rec);
-    req.Status = "PendingReview"; req.UpdatedAt = DateTime.UtcNow;
-    TraceLog.Add(db, "AiRecommendation", rec.Id, "Generated", Access.UserId(ctx.User),
-        new { rec.Priority, rec.Confidence, rec.Model, rec.Rationale, rec.PossibleDuplicateId });
-    TraceLog.History(db, id, Access.UserId(ctx.User), "AI assessed", "Recommendation awaiting human approval");
+
+    req.Status = "PendingReview";
+    req.UpdatedAt = DateTime.UtcNow;
+
+    TraceLog.Add(db, "AiRecommendation", rec.Id, "Generated",
+        Access.UserId(ctx.User),
+        new
+        {
+            rec.RecommendedCategory,
+            rec.Priority,
+            rec.Confidence,
+            rec.Model,
+            rec.Rationale,
+            rec.PossibleDuplicateId,
+            ClassificationConfidence = classification.Confidence,
+            DuplicateSimilarity = duplicate?.SimilarityScore
+        });
+
+    TraceLog.History(db, id, Access.UserId(ctx.User),
+        "AI assessed", "Recommendation awaiting human approval");
+
     await db.SaveChangesAsync(ct);
     return Results.Ok(rec);
 }).RequireAuthorization(p => p.RequireRole(Roles.Coordinator, Roles.CaseManager, Roles.Admin));

@@ -1,5 +1,6 @@
 using CrisisAid.Api.Data;
 using CrisisAid.Api.Domain;
+using CrisisAid.Api.Services.AI;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Routing;
 
@@ -25,6 +26,11 @@ public static class ExtendedModules
         CREATE TABLE dbo.Feedback (Id uniqueidentifier NOT NULL PRIMARY KEY, RequestId uniqueidentifier NOT NULL UNIQUE, CitizenId uniqueidentifier NOT NULL, Rating int NOT NULL, Comments nvarchar(max) NOT NULL, CreatedAt datetime2 NOT NULL);
         IF OBJECT_ID(N'dbo.PartnerOffers', N'U') IS NULL
         CREATE TABLE dbo.PartnerOffers (Id uniqueidentifier NOT NULL PRIMARY KEY, OrganisationId uniqueidentifier NOT NULL, CreatedBy uniqueidentifier NOT NULL, ResourceCategory nvarchar(max) NOT NULL, Area nvarchar(max) NOT NULL, Quantity int NOT NULL, Notes nvarchar(max) NOT NULL, Status nvarchar(max) NOT NULL, CreatedAt datetime2 NOT NULL);
+        IF OBJECT_ID(N'dbo.Requests', N'U') IS NOT NULL
+           AND COL_LENGTH(N'dbo.Requests', N'Unit') IS NULL
+        ALTER TABLE dbo.Requests
+        ADD Unit nvarchar(40) NOT NULL
+            CONSTRAINT DF_Requests_Unit DEFAULT N'unit-unspecified' WITH VALUES;
 
         -- Member 03: Resource, Logistics & Partner Coordination schema extensions
         IF COL_LENGTH(N'dbo.Resources', N'TotalQuantity') IS NULL
@@ -188,17 +194,72 @@ public static class ExtendedModules
             if (offer.Status != "Offered") return Results.Conflict(new { error = "Offer already reviewed" });
             offer.Status = dto.Status; TraceLog.Add(db, "PartnerOffer", id, dto.Status, Access.UserId(ctx.User)); await db.SaveChangesAsync(); return Results.Ok(offer);
         }).RequireAuthorization(p => p.RequireRole(Roles.Coordinator, Roles.Logistics, Roles.Admin));
-        api.MapGet("/insights/forecast", async (AidDbContext db) => {
-            var cutoff = DateTime.UtcNow.AddDays(-14);
-            var requests = await db.Requests.AsNoTracking().Where(x => x.CreatedAt >= cutoff).ToListAsync();
+        api.MapGet("/insights/forecast", async (AidDbContext db, IAiForecastService forecast) => {
+            var asOfUtc = DateTime.UtcNow;
+            var firstDay = asOfUtc.Date.AddDays(-13);
+
+            var requests = await db.Requests.AsNoTracking()
+                .Where(x => x.CreatedAt >= firstDay &&
+                            x.CreatedAt <= asOfUtc &&
+                            x.RequestedQuantity > 0)
+                .ToListAsync();
+
+            var crises = await db.Crises.AsNoTracking().ToListAsync();
             var resources = await db.Resources.AsNoTracking().ToListAsync();
-            var data = requests.GroupBy(x => x.Category).Select(g => new {
-                category = g.Key, last14Days = g.Count(), requestedUnits = g.Sum(x => x.RequestedQuantity),
-                estimatedNext7Days = (int)Math.Ceiling(g.Count() / 2.0),
-                availableUnits = resources.Where(r => r.Category == g.Key).Sum(r => r.AvailableQuantity),
-                method = "Simple historical seven-day baseline; not a trained predictive model"
-            }).OrderByDescending(x => x.last14Days);
-            return Results.Ok(data);
+
+            var crisisById = crises.ToDictionary(x => x.Id);
+            var demand = new List<ForecastDemandPoint>();
+
+            foreach (var request in requests)
+            {
+                if (!crisisById.TryGetValue(request.CrisisId, out var crisis))
+                    continue;
+
+
+                var unit = string.IsNullOrWhiteSpace(request.Unit)
+                    ? "unit-unspecified"
+                    : request.Unit.Trim();
+
+                demand.Add(new ForecastDemandPoint(
+                    crisis.Id,
+                    crisis.Area ?? "",
+                    request.Category,
+                    unit,
+                    request.CreatedAt,
+                    request.RequestedQuantity
+                ));
+            }
+
+            var stock = crises
+                .Select(c => c.Area?.Trim() ?? "")
+                .Where(area => !string.IsNullOrWhiteSpace(area))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .SelectMany(area =>
+                {
+                    var areaParts = area
+                        .Split(new[] { '&', ',', ';' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                        .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+                    return resources
+                        .Where(r => areaParts.Contains(r.Area?.Trim() ?? ""))
+                        .Select(r => new ForecastStockPoint(
+                            area,
+                            r.Category,
+                            r.Unit,
+                            r.AvailableQuantity
+                        ));
+                })
+                .GroupBy(x => new { x.Area, x.Category, x.Unit })
+                .Select(group => new ForecastStockPoint(
+                    group.Key.Area,
+                    group.Key.Category,
+                    group.Key.Unit,
+                    group.Sum(x => x.AvailableQuantity)
+                ))
+                .ToList();
+
+            var results = forecast.Forecast(demand, stock, asOfUtc);
+            return Results.Ok(results);
         }).RequireAuthorization(p => p.RequireRole(Roles.Coordinator, Roles.Logistics, Roles.CaseManager, Roles.Admin));
         api.MapGet("/insights/duplicates", async (AidDbContext db) => {
             var recs = await db.AiRecommendations.AsNoTracking().Where(x => x.PossibleDuplicateId != null).OrderByDescending(x => x.CreatedAt).Take(50).ToListAsync();

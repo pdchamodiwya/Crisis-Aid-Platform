@@ -1,48 +1,57 @@
+
 using CrisisAid.Api.Data;
 using Microsoft.EntityFrameworkCore;
 
 namespace CrisisAid.Api.Services;
 
-public class DonationService(AidDbContext db)
+public class DonationService
 {
-    public async Task<decimal> GetAvailableFundsAsync(
-        Guid donationId)
+    private readonly AidDbContext _db;
+
+    public DonationService(AidDbContext db)
     {
-        var donation = await db.Donations
-            .FindAsync(donationId);
+        _db = db;
+    }
+
+    public async Task<decimal> GetAvailableFundsAsync(Guid donationId)
+    {
+        var donation = await _db.Donations
+            .AsNoTracking()
+            .SingleOrDefaultAsync(x => x.Id == donationId);
 
         if (donation == null ||
-            donation.Status != "Confirmed" ||
-            donation.Kind != "Monetary")
+            donation.Kind != "Monetary" ||
+            donation.Status != "Confirmed")
         {
-            return 0;
+            return 0m;
         }
 
-        var allocated = await db.DonationAllocations
-            .Where(x =>
-                x.DonationId == donationId &&
-                x.Status == "Approved")
-            .SumAsync(x => (decimal?)x.Amount) ?? 0;
+        var allocatedAmount = await _db.DonationAllocations
+            .Where(x => x.DonationId == donationId &&
+                        x.Status == "Approved")
+            .SumAsync(x => (decimal?)x.Amount) ?? 0m;
 
-        return donation.Amount - allocated;
+        return Math.Max(0m, donation.Amount - allocatedAmount);
     }
 
     public async Task<decimal> GetRemainingAllocationAsync(
         Guid allocationId)
     {
-        var allocation = await db.DonationAllocations
-            .FindAsync(allocationId);
+        var allocation = await _db.DonationAllocations
+            .AsNoTracking()
+            .SingleOrDefaultAsync(x => x.Id == allocationId);
 
         if (allocation == null ||
             allocation.Status != "Approved")
         {
-            return 0;
+            return 0m;
         }
 
-        var spent = await db.CampaignExpenditures
+        var spent = await _db.CampaignExpenditures
             .Where(x => x.AllocationId == allocationId)
-            .SumAsync(x => (decimal?)x.Amount) ?? 0;
+            .SumAsync(x => (decimal?)x.Amount) ?? 0m;
 
-        return allocation.Amount - spent;
+        return Math.Max(0m, allocation.Amount - spent);
     }
 }
+
