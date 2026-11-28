@@ -38,12 +38,15 @@ public class OutboxWorker(IServiceScopeFactory scopes, IConfiguration config, IL
             {
                 using var smtp = new SmtpClient(host, int.TryParse(config["SMTP:Port"], out var p) ? p : 587)
                 {
-                    EnableSsl = true, Credentials = new NetworkCredential(config["SMTP:Username"], config["SMTP:Password"]),
+                    EnableSsl = config.GetValue<bool>(
+    "SMTP:EnableSsl", true),
                     Timeout = 5000
                 };
                 using var mail = new MailMessage(config["SMTP:From"] ?? "no-reply@example.org", recipient.Email, row.Subject, row.Body);
                 await smtp.SendMailAsync(mail, ct);
                 row.Status = "Sent";
+                mail.SubjectEncoding = System.Text.Encoding.UTF8;
+mail.BodyEncoding = System.Text.Encoding.UTF8;
             }
             catch (Exception ex) when (ex is SmtpException or InvalidOperationException or OperationCanceledException)
             {
