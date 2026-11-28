@@ -55,8 +55,14 @@ public static class SeedData
                 OrganisationId = role is "Citizen" or "Donor" ? null : org.Id };
             user.PasswordHash = hasher.HashPassword(user, pw);
             db.Users.Add(user);
-            if (role == Roles.Volunteer) db.Volunteers.Add(new VolunteerProfile
-                { UserId = user.Id, Area = "Colombo", Skills = "First aid, distribution, transport", Verified = true });
+            if (role == Roles.Volunteer)
+            {
+                var volunteer = new VolunteerProfile
+                    { UserId = user.Id, Area = "Colombo", Skills = "First aid, distribution, transport", Verified = true };
+                db.Volunteers.Add(volunteer);
+                db.VolunteerSkills.AddRange(new[] { "First aid", "distribution", "transport" }
+                    .Select(name => new VolunteerSkill { VolunteerId = volunteer.Id, Name = name, Verified = true }));
+            }
         }
         var crisis = new CrisisEvent { Name = "Western Province Flood Response (DEMO)", Type = "Flood", Area = "Colombo & Gampaha" };
         db.Crises.Add(crisis);
@@ -66,8 +72,8 @@ public static class SeedData
             new ResourceItem { Name = "Bottled drinking water", Category = "Water", Unit = "cases", AvailableQuantity = 14, Area = "Colombo", OrganisationId = org.Id, Latitude = 6.930, Longitude = 79.865 },
             new ResourceItem { Name = "First aid medicine kits", Category = "Medicine", Unit = "kits", AvailableQuantity = 3, Area = "Gampaha", OrganisationId = org.Id, Latitude = 7.09, Longitude = 79.99 });
         db.Shelters.AddRange(
-            new Shelter { Name = "Central Community Hall (DEMO)", Area = "Colombo", Capacity = 100, Occupancy = 36, Accessible = true, Facilities = "Water, toilets, ramps", Latitude = 6.919, Longitude = 79.869 },
-            new Shelter { Name = "North Relief Centre (DEMO)", Area = "Gampaha", Capacity = 60, Occupancy = 48, Accessible = false, Facilities = "Water, toilets", Latitude = 7.08, Longitude = 79.99 });
+            new Shelter { Name = "Central Community Hall (DEMO)", Area = "Colombo", Capacity = 100, Occupancy = 36, Accessible = true, Facilities = "Water, toilets, ramps", MedicalFacilities = true, SanitationFacilities = true, FoodAvailable = true, Latitude = 6.919, Longitude = 79.869 },
+            new Shelter { Name = "North Relief Centre (DEMO)", Area = "Gampaha", Capacity = 60, Occupancy = 48, Accessible = false, Facilities = "Water, toilets", SanitationFacilities = true, Latitude = 7.08, Longitude = 79.99 });
         db.Campaigns.Add(new DonationCampaign { Name = "Flood Essentials (DEMO)", CrisisId = crisis.Id, TargetAmount = 500000 });
         var citizen = db.Users.Local.Single(x => x.Email == "citizen@demo.local");
         var coordinator = db.Users.Local.Single(x => x.Email == "coordinator@demo.local");
