@@ -1,3 +1,4 @@
+import CampaignManagement from './donations/CampaignManagement';
 import { useState } from 'react';
 import LegacyDonations from './LegacyDonations';
 import './donations/donations.css';
@@ -15,6 +16,9 @@ export default function Donations({ user }) {
   const tabs = [
     { id: 'campaigns', label: 'Campaigns' }
   ];
+  (isFundingOfficer ? [
+  { id: 'manage', label: 'Manage Campaigns' }
+] : [])
 
   return (
     <section>
@@ -40,4 +44,5 @@ export default function Donations({ user }) {
         <LegacyDonations user={user} />}
     </section>
   );
+  
 }
