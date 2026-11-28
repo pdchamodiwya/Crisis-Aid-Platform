@@ -2,6 +2,7 @@ import CampaignManagement from './donations/CampaignManagement';
 import { useState } from 'react';
 import LegacyDonations from './LegacyDonations';
 import './donations/donations.css';
+import MakeDonation from './donations/MakeDonation';
 
 export default function Donations({ user }) {
   const [activeTab, setActiveTab] = useState('campaigns');
@@ -16,9 +17,15 @@ export default function Donations({ user }) {
   const tabs = [
     { id: 'campaigns', label: 'Campaigns' }
   ];
+
   (isFundingOfficer ? [
   { id: 'manage', label: 'Manage Campaigns' }
 ] : [])
+
+(isDonor ? [
+  { id: 'donate', label: 'Make a Donation' }
+] : [])
+
 
   return (
     <section>
@@ -42,7 +49,11 @@ export default function Donations({ user }) {
 
       {activeTab === 'campaigns' &&
         <LegacyDonations user={user} />}
+
+        {activeTab === 'donate' && isDonor &&
+  <MakeDonation />}
     </section>
   );
+  
   
 }
