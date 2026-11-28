@@ -767,7 +767,8 @@ api.MapGet("/donations/report/me", async (
             Guid id,
             ConfirmDonationInput dto,
             HttpContext ctx,
-            AidDbContext db) =>
+            AidDbContext db,
+            DonationFraudService fraudService) =>
         {
             try
             {
@@ -1056,6 +1057,62 @@ api.MapGet("/donations/report/me", async (
                         error = "Unsupported donation type."
                     });
                 }
+                donation.TransactionReference =
+    dto.TransactionReference?.Trim().ToUpperInvariant();
+
+var reasons = await fraudService.DetectAsync(donation);
+
+var blocked = false;
+
+foreach (var reason in reasons)
+{
+    var previous = await db.DonationFraudFlags
+        .Where(x =>
+            x.DonationId == donation.Id &&
+            x.Reason == reason)
+        .OrderByDescending(x => x.CreatedAt)
+        .FirstOrDefaultAsync();
+
+    var duplicate =
+        reason == "Duplicate transaction reference";
+
+    if (!duplicate && previous != null &&
+        (previous.Status == "Resolved" ||
+         previous.Status == "FalsePositive"))
+        continue;
+
+    blocked = true;
+
+    if (previous == null ||
+        previous.Status == "Resolved" ||
+        previous.Status == "FalsePositive")
+    {
+        db.DonationFraudFlags.Add(new DonationFraudFlag
+        {
+            DonationId = donation.Id,
+            Reason = reason,
+            Severity = duplicate ? "High" : "Medium",
+            Status = "Open"
+        });
+    }
+}
+
+if (blocked || await db.DonationFraudFlags.AnyAsync(x =>
+    x.DonationId == donation.Id &&
+    (x.Status == "Open" ||
+     x.Status == "Investigating")))
+{
+    donation.Status = "UnderReview";
+
+    TraceLog.Add(
+        db, "Donation", donation.Id,
+        "FlaggedForReview", Access.UserId(ctx.User));
+
+    await db.SaveChangesAsync();
+
+    return Results.Accepted(
+        value: new { donation.Status });
+}
 
                 // ======================================
                 // 11. CONFIRM THE DONATION
