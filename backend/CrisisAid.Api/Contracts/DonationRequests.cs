@@ -31,7 +31,12 @@ public record ConfirmDonationInput(
     string? TransactionReference,
     string? PaymentMethod,
     int? ReceivedQuantity,
-    string? Notes
+    string? Notes,
+    bool ReceiptVerified = false
+);
+
+public record RejectDonationInput(
+    string Reason
 );
 
 public record DonationAllocationInput(
