@@ -1,128 +1,223 @@
 # CrisisAid — AI-Powered Humanitarian Crisis Management & Aid Coordination
 
 **NSBM | SE205.3 Software Architecture | Coursework 2026**  
-A group coursework prototype based on the three supplied brief, report, and presentation guidelines. **Not a live emergency response system.** All seed records and organisations are fictional.
+A comprehensive humanitarian crisis management platform designed for rapid response, citizen assistance triage, resource inventory, logistics tracking, partner coordination, and shelter allocation.
 
-## 1. Contents
+---
 
-| Path | Content |
-|---|---|
-| `backend/CrisisAid.Api/` | C# ASP.NET Core 8 REST API, EF Core SQL Server, authentication, core services, AI decision-support, outbox |
-| `backend/CrisisAid.Tests/` | xUnit tests for priority, category classification, matching policies and distance |
-| `frontend/` | Responsive React/Vite web application (citizen portal, case dashboard, logistics, shelters, volunteers, donations, map, audit) |
-| `database/` | SQL reporting views, verification queries and entity design notes |
-| `diagrams/` | Architecture, use case, class, ER, component, deployment and sequence diagrams (editable sources + exported PNG/SVG) |
-| `postman/` | Importable Postman collection and example environment |
-| `docs/` | Final report, demonstration/presentation slides, scripts, test matrix and evidence checklist |
-| `.env.example` | Secret/configuration template; local-only demo seed options |
-| `docker-compose.yml` | SQL Server + API containers |
+## Quick Navigation
 
-## 2. Requirements
+- [1. System Prerequisites](#1-system-prerequisites)
+- [2. How to Run the System (Quickstart)](#2-how-to-run-the-system-quickstart)
+  - [Method A: Visual Studio 2022 / 2026 (Recommended — No Docker Required)](#method-a-visual-studio-2022--2026-recommended--no-docker-required)
+  - [Method B: .NET CLI / PowerShell (No Visual Studio)](#method-b-net-cli--powershell-no-visual-studio)
+  - [Method C: Docker Desktop](#method-c-docker-desktop)
+- [3. Frontend Setup (React + Vite)](#3-frontend-setup-react--vite)
+- [4. Demo Login Credentials](#4-demo-login-credentials)
+- [5. Member 03 — Resource, Logistics & Partner Coordination Tour](#5-member-03--resource-logistics--partner-coordination-tour)
+- [6. Troubleshooting Common Issues](#6-troubleshooting-common-issues)
+- [7. API Surfaces & Documentation](#7-api-surfaces--documentation)
+- [8. Architecture Patterns & Testing](#8-architecture-patterns--testing)
 
-- Docker Desktop with Linux container support (SQL Server image may require several GB RAM)
-- Node.js 20+ and npm for the React frontend
-- Optional .NET 8 SDK for local `dotnet test` / direct API launch
-- Internet connection for first-time Docker image pulls, npm install, optional AI, mapping tiles and email
-- Visual Studio Code / Visual Studio / SQL Server Management Studio as desired
+---
 
-## 3. Start in a local development environment
+## 1. System Prerequisites
 
-```bash
-# from the project root
-cp .env.example .env
-```
+Before running the platform, ensure the following are installed on your machine:
 
-Edit `.env` and change `SA_PASSWORD`, `JWT_KEY` (32+ bytes), and `DEMO_PASSWORD` (12+ characters). Do not reuse sample secrets outside private local demos.
+| Component | Minimum Requirement | Recommended | Purpose |
+|---|---|---|---|
+| **Operating System** | Windows 10/11 64-bit | Windows 11 | Host OS |
+| **.NET SDK** | .NET 8.0 or .NET 10.0+ | .NET 8 / 10 SDK | ASP.NET Core Web API Backend |
+| **IDE** | Visual Studio 2022 (v17.x) or 2026 (v18.x) | Community / Professional | Backend development & debugging |
+| **Database** | SQL Server LocalDB or Docker SQL Server | `(localdb)\mssqllocaldb` (included with VS) | Data persistence |
+| **Node.js & npm** | Node.js 18+ & npm 9+ | Node.js 20 LTS | React Frontend & Vite Dev Server |
 
-```bash
-docker compose up --build -d
-docker compose logs -f api
-```
+---
 
-Once API startup and SQL connection succeed, open **http://localhost:8080/swagger** to examine the APIs. SQL Server is exposed on `localhost,14333` for optional local inspection. To use HTTPS in a shared environment, terminate TLS at a secure reverse proxy; the sample local Docker endpoint is HTTP-only and should not be exposed to the internet.
+## 2. How to Run the System (Quickstart)
 
-In a separate terminal:
+### Method A: Visual Studio 2022 / 2026 (Recommended — No Docker Required)
 
-```bash
-cd frontend
-npm install
-npm run dev
-```
+This is the easiest and fastest way to run CrisisAid on Windows. It uses **SQL Server LocalDB** (pre-installed with Visual Studio) and automatically creates and seeds the database on first run.
 
-Open **http://localhost:5173** in your browser. The Vite development proxy forwards `/api` requests to port 8080. (Alternatively, change `VITE_API_BASE` to a deployed API.)
+#### Step 1: Open the Solution
+1. Open Visual Studio.
+2. Click **Open a project or solution**.
+3. Select `CrisisAid.sln` located at the root of the project:
+   ```text
+   C:\Users\<username>\source\repos\Crisis-Aid-Platform\CrisisAid.sln
+   ```
 
-**Development seed accounts** (when `Demo__Enabled=true`): `coordinator@demo.local`, `admin@demo.local`, `logistics@demo.local`, `shelter@demo.local`, `volunteerlead@demo.local`, `citizen@demo.local`, `volunteer@demo.local`, and `donor@demo.local`. All use the **DEMO_PASSWORD** value you configured in `.env`. Do not publish login details in a public recording. Seed data is only generated when the Users table is empty; changing the demo password later does not reset existing accounts.
+#### Step 2: Build the Solution
+1. In the top menu, click **Build > Rebuild Solution** (or press `Ctrl + Shift + B`).
+2. Verify that **Build: 2 succeeded, 0 failed** appears in the Output window.
 
-## 4. Demonstration workflow
+#### Step 3: Run the Backend API
+1. Ensure the Startup Project toolbar displays:
+   - Target: **`CrisisAid.Api`**
+   - Profile: **`CrisisAid.Api`** (Green play arrow)
+2. Press **`Ctrl + F5`** (**Start Without Debugging**).
+3. A console window will launch, initializing LocalDB, executing idempotent schema migrations, and seeding demonstration accounts:
+   ```text
+   Microsoft.Hosting.Lifetime: Now listening on: http://localhost:8080
+   ```
+4. Visual Studio will automatically open the interactive Swagger UI at:
+   👉 **http://localhost:8080/swagger**
 
-1. Sign in as `citizen@demo.local` and open **Request assistance**. Submit a Water or Food request in the demo crisis; enter your location or click the map.
-2. Sign in as `coordinator@demo.local` and open **Case management**. Select the new case; click **Generate AI assessment**. Review the category, priority, confidence and rationale. Approve, reject, defer or modify the score; include a reason for modification/rejection.
-3. Sign in as `logistics@demo.local`; in **Resources**, select a verified/approved request, inspect ranked matches, and reserve a suitable quantity. Attempt a quantity larger than stock to show `409 Conflict` without overspending inventory.
-4. For a Shelter request, sign in as `shelter@demo.local` and allocate within capacity and accessibility constraints.
-5. Sign in as `volunteerlead@demo.local`; verify a volunteer, then assign a task requiring an available skill. Sign in as `volunteer@demo.local` to accept and complete it.
-6. Sign in as `donor@demo.local` to record a **pledge**. No payment gateway is implemented and no actual funds are taken.
-7. Sign in as `admin@demo.local` to inspect role assignments and the **Governance & audit** event history; check **Notifications** for in-app delivery.
-8. In Swagger, test protected APIs with a bearer token; capture SQL Server rows via `database/verification_queries.sql` for the final report.
+> **Keep this backend console window open while using the application.**
 
-## 5. API surfaces
+---
 
-| Category | Representative paths |
-|---|---|
-| Auth | `POST /api/auth/register`, `POST /api/auth/login`, `GET /api/me` |
-| Crises | `GET /api/crises`, `POST /api/crises` |
-| Assistance | `GET/POST /api/requests`, `GET /api/requests/{id}`, `POST /api/requests/{id}/assess`, `POST /api/requests/{id}/review`, `PATCH /api/requests/{id}/status` |
-| Allocation | `GET/POST /api/resources`, `GET /api/requests/{id}/resource-matches`, `POST /api/resources/allocate` |
-| Shelters | `GET/POST /api/shelters`, `POST /api/shelters/allocate` |
-| Volunteers | `GET /api/volunteers`, `PUT /api/volunteers/me`, `PATCH /api/volunteers/{id}/verify`, `GET/POST /api/volunteers/tasks` |
-| Donations | `GET/POST /api/campaigns`, `GET/POST /api/donations` |
-| Communications | `GET /api/notifications`, `PATCH /api/notifications/{id}/read` |
-| Map | `GET /api/map/geocode?query=...`, `GET /api/map/distance?...` |
-| Governance | `GET /api/dashboard`, `GET /api/audit`, `GET /api/users`, `GET /api/roles`, `PATCH /api/users/{id}/role` |
+### Method B: .NET CLI / PowerShell (No Visual Studio)
 
-Swagger shows current request/response shapes. The Postman collection contains a repeatable authenticated workflow with environment variables.
+If you prefer using the terminal:
 
-## 6. Run checks and tests
+1. Open PowerShell in the project root:
+   ```powershell
+   cd C:\Users\<username>\source\repos\Crisis-Aid-Platform
+   ```
+2. Run the backend directly:
+   ```powershell
+   dotnet run --project backend/CrisisAid.Api
+   ```
+3. The API will start listening on `http://localhost:8080`.
 
-```bash
-# Requires .NET 8 SDK and initial NuGet package restore
- dotnet test backend/CrisisAid.Tests/CrisisAid.Tests.csproj
-# Frontend install then production bundle
- cd frontend && npm run build
-# Container startup / health
- curl http://localhost:8080/api/health
-```
+---
 
-The enclosed test matrix provides unit, API, integration, and UAT scenarios. **Test cases and expected outcomes are supplied; full execution evidence must be captured on a machine with Docker, .NET, npm and SQL Server available.** This package was created in an environment without `dotnet` or npm registry access, so a successful build or passing live test suite is not claimed.
+### Method C: Docker Desktop
 
-## 7. AI model configuration and safeguards
+If you have Docker Desktop installed and running:
 
-Default mode is an explainable **heuristic decision-support fallback**, not a trained ML model. It considers reported urgency, medical concerns, people affected, accessibility needs and category-related keywords, and returns a priority range 1–100 with an explicitly non-calibrated confidence score. If `AI_API_KEY`, `AI_MODEL` and `AI_ENDPOINT` are supplied, a chat-completions-compatible external AI can be called using only trimmed request features. The external AI call has a 6-second timeout; invalid responses and downtime fall back to the heuristic. **External AI is disabled by default.** Before activating it, obtain consent where required, redact personal information in descriptions, assess vendor retention and data residency, and validate local protection regulations.
+1. Make sure Docker Desktop is running (Linux containers mode).
+2. Create your `.env` configuration file:
+   ```bash
+   cp .env.example .env
+   ```
+3. Start the containers:
+   ```bash
+   docker compose up --build -d
+   docker compose logs -f api
+   ```
+4. Access the API at `http://localhost:8080/swagger`.
 
-The system never automatically approves a case or dispatches assistance from an AI result. Authorised case managers explicitly approve or override suggestions. Original priority, confidence, human action, actor, time and reason are preserved in `AiRecommendations` and the append-only-intent audit event stream. Possible duplicates are flagged; they are never automatically deleted or merged.
+---
 
-## 8. Reliability and security
+## 3. Frontend Setup (React + Vite)
 
-- ASP.NET Identity password hashing; JWT expiry; server-side RBAC and ownership checks; auth/geocode rate limiting.
-- **SQL serializable transactions** for reserve operations to prevent resource shortages and shelter over-capacity during concurrent requests.
-- A transactional **outbox with unique event keys** to avoid duplicate notifications and a background worker for retrying SMTP delivery; every recipient also receives in-app messages.
-- External AI and map geocoding use timeouts/fallbacks; external map tiles may not load offline.
-- Structured audit of major mutations; event metadata retained for reconstruction of decisions.
-- No raw secret is shipped in source code. `.env` is gitignored. Only development demo credentials exist through opt-in seeding.
+Once your backend is running on port 8080:
 
-### Known limitations (must be disclosed in report)
+1. Open a new terminal / PowerShell window and navigate to the `frontend` folder:
+   ```bash
+   cd frontend
+   ```
+2. Install npm dependencies (first time only):
+   ```bash
+   npm install
+   ```
+3. Start the Vite development server:
+   ```bash
+   npm run dev
+   ```
+4. Open your browser and navigate to:
+   👉 **http://localhost:5173**
 
-This is a teaching prototype, not humanitarian-production software. It lacks disaster-tested offline sync, formal data-protection impact assessment, verified language translation, actual payment collection, secure evidence-file storage (HTTPS evidence links only), cryptographically tamper-evident audit storage, comprehensive tenant-scoped access restrictions, professional incident verification, and real-time distributed job locking. The outbox is designed for a **single API instance** in the included Compose deployment. Public OpenStreetMap/Nominatim services have policies and availability limits. Unit tests are supplied but not executed in this environment. A production release would require security review, load/penetration tests, migration-based schema management, comprehensive monitoring, backup/restore exercises and formal operational signoff.
+> **Note:** The Vite dev server automatically proxies all `/api/*` network requests to `http://localhost:8080`.
 
-## 9. Submission checklist and ownership
+---
 
-The course specifies **30 November 2026** as the deadline. Replace placeholders (`GROUP_NUMBER`, student names and index numbers) in reports/slides. Record a genuine 10-minute group presentation (4-minute system demo + 1-minute contribution per member for a 6-person group) using Zoom or Teams with cameras and introductions. Upload the video and source to **NSBM OneDrive with evaluator access**, add real OneDrive/GitHub URLs to the report and hand-in Word document, and produce the institution-required NLearn submissions/ZIP. The included files do **not** invent real recording, repository links, Git commit history, student contributions or screenshots. See `docs/SUBMISSION_CHECKLIST.md`.
+## 4. Demo Login Credentials
 
-## 10. Software architecture patterns
+The database comes pre-seeded with sample users for all humanitarian roles.
 
-- **Modular monolith:** single deployable API with isolated domain, data, services, contracts.
-- **Repository:** `IRequestRepository` and `EfRequestRepository` for case-query encapsulation.
-- **Dependency Injection:** ASP.NET Core container injects repositories, services and HTTP clients.
-- **Strategy & Factory:** `IResourceMatchStrategy` alternatives and `ResourceMatchStrategyFactory` choose between full-stock and partial-shortage matching policies.
-- **Transactional outbox / pub-sub-like workflow:** business transactions enqueue events; `OutboxWorker` processes them asynchronously into in-app or email notifications.
+Default password for all demo accounts:
+🔑 **`CourseworkDemo!2026`**
 
-For diagram sources and explanations, see `diagrams/` and the final report.
+| Role | Email Address | Access & Purpose |
+|---|---|---|
+| **Logistics Lead** | `logistics@demo.local` | **Member 03:** Resources, Stock Movements, Allocations, Dispatches, QR Verification, Partners |
+| **Crisis Coordinator** | `coordinator@demo.local` | Crisis overview, Case Management, AI Decision Support, Approvals |
+| **System Admin** | `admin@demo.local` | User management, Role assignment, Governance & Audit logs |
+| **Shelter Manager** | `shelter@demo.local` | Shelter capacity, Occupancy tracking, Evacuee intake |
+| **Volunteer Lead** | `volunteerlead@demo.local` | Volunteer task assignment, Skill verification |
+| **Citizen (Affected)** | `citizen@demo.local` | Submit emergency requests, track aid status |
+| **Field Volunteer** | `volunteer@demo.local` | Accept tasks, report progress |
+| **Donor** | `donor@demo.local` | Make campaign pledges and contributions |
+
+---
+
+## 5. Member 03 — Resource, Logistics & Partner Coordination Tour
+
+Log in as `logistics@demo.local` and explore the dedicated features:
+
+### A. Resource Operations Center (`/resources`)
+The resource page is organized into **6 tabs**:
+1. **📦 Inventory Control**: Real-time table of resources across warehouses. Supports adding new items, stock replenishment, editing details, deactivation, and low-stock alerts.
+2. **📜 Stock Movements**: Append-only movement ledger tracking all receipts, allocations, dispatches, adjustments, and returns with reason codes.
+3. **🎯 Match & Allocate**: Select an approved emergency request and run the heuristic matching engine to find the closest, highest-condition stock and allocate with zero-oversell concurrency protection.
+4. **⚠️ Shortage Management**: Detect stock deficits across crises, calculate urgency priority scores for competing requests, and generate actionable shortage mitigation plans.
+5. **🚚 Dispatches**: Create and track dispatch records through delivery workflows (`Pending` ➔ `InTransit` ➔ `Delivered`). Generates cryptographic QR codes.
+6. **📱 QR Verification Portal**: Field verification portal where relief workers scan SVG QR codes or enter 8-character human shortcodes to confirm humanitarian deliveries in real-time.
+
+### B. Partner Coordination Portal (`/partners`)
+The partner coordination page is organized into **3 tabs**:
+1. **🤝 Partner Directory & Offers**: View partner organisations and accepted resource aid pledges.
+2. **📋 Requisitions**: Issue formal resource requisitions to external NGOs and humanitarian partners.
+3. **🔄 Inter-Warehouse Transfers**: Coordinate stock transfers between facilities and partners with one-click atomic stock receipt into warehouse inventory.
+
+---
+
+## 6. Troubleshooting Common Issues
+
+### Issue 1: `AggregateError [ECONNREFUSED]: /api/auth/login`
+- **Cause**: The React frontend is running, but the backend API is not running on port 8080.
+- **Fix**: Open Visual Studio and run `CrisisAid.Api` (`Ctrl + F5`), or run `dotnet run --project backend/CrisisAid.Api`. Ensure the console displays `Now listening on: http://localhost:8080`.
+
+### Issue 2: `0x80008096 (FrameworkMissingFailure)` in Visual Studio
+- **Cause**: You have .NET 10 SDK installed, but the project targets .NET 8.
+- **Fix**: Both `CrisisAid.Api.csproj` and `CrisisAid.Tests.csproj` have `<RollForward>LatestMajor</RollForward>` enabled. Simply select **Build > Rebuild Solution** in Visual Studio.
+
+### Issue 3: `An element with the same key already exists: SelfHostWebServer`
+- **Cause**: Duplicate or conflicting profile definitions in `launchSettings.json`.
+- **Fix**: Already cleaned in `launchSettings.json`. Ensure you select the profile named **`CrisisAid.Api`** in Visual Studio.
+
+### Issue 4: Docker `failed to connect to the docker API at npipe:////./pipe/docker_engine`
+- **Cause**: Docker Desktop is not open or the Docker daemon is stopped.
+- **Fix**: You do **not** need Docker! Use **Method A (Visual Studio + LocalDB)** which requires zero Docker containers.
+
+### Issue 5: `CS0122: 'QrMatrixEncoder' is inaccessible due to its protection level`
+- **Cause**: Matrix encoder was internal.
+- **Fix**: Updated to `public static class QrMatrixEncoder` in `backend/CrisisAid.Api/Services/DeliveryVerificationService.cs`.
+
+---
+
+## 7. API Surfaces & Documentation
+
+When the backend is active, complete interactive OpenAPI documentation is accessible at:
+🔗 **http://localhost:8080/swagger**
+
+### Key Endpoint Groups:
+- **Auth**: `/api/auth/login`, `/api/auth/register`, `/api/me`
+- **Resources & Inventory**: `GET/POST /api/resources`, `POST /api/resources/{id}/replenish`, `POST /api/resources/{id}/adjust`, `GET /api/resources/movements`, `GET /api/resources/low-stock`, `GET /api/resources/kpis`
+- **Matching & Allocation**: `GET /api/requests/{id}/resource-matches`, `POST /api/resources/allocate`, `POST /api/resources/allocations/{id}/cancel`
+- **Shortage Resolution**: `GET /api/resources/shortages/analysis`, `POST /api/resources/shortages/plan`, `POST /api/resources/shortages/resolve`
+- **Dispatches & QR Verification**: `GET/POST /api/dispatches`, `GET /api/dispatches/{id}/qr`, `GET /api/dispatches/verify/{token}`, `POST /api/dispatches/verify/confirm`
+- **Partner Coordination**: `GET/POST /api/partners/requests`, `GET/POST /api/partners/transfers`, `POST /api/partners/transfers/{id}/receive`
+
+---
+
+## 8. Architecture Patterns & Testing
+
+- **Modular Monolith**: Single clean ASP.NET Core solution structured into Domain, Data, Services, and Contracts.
+- **Repository & Unit of Work**: EF Core `AidDbContext` with strict transaction isolation (Serializable transactions for reserve/allocation operations to eliminate race conditions).
+- **Strategy & Factory**: `IResourceMatchStrategy` supporting full-stock and partial-shortage matching policies with proximity scoring.
+- **Transactional Outbox**: Decoupled asynchronous notification delivery via `OutboxWorker`.
+- **Automated Unit Tests**:
+  ```powershell
+  dotnet test backend/CrisisAid.Tests/CrisisAid.Tests.csproj
+  ```
+  Includes 12 dedicated unit tests in `LogisticsTests.cs` verifying inventory movements, replenishment, zero-oversell concurrency, shortage prioritization, QR matrix generation, and cryptographic delivery tokens.
+
+---
+
+*NSBM Green University — Faculty of Computing — Department of Software Engineering*
