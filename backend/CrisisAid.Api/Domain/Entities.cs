@@ -95,12 +95,59 @@ public class VolunteerTask
     public string RequiredSkill {get;set;}=""; public string Description {get;set;}=""; public string Status {get;set;}="Assigned";
     public Guid AssignedBy {get;set;} public DateTime At {get;set;}=DateTime.UtcNow; public DateTime? CompletedAt {get;set;}
 }
-public class DonationCampaign { public Guid Id {get;set;}=Guid.NewGuid(); public string Name {get;set;}=""; public Guid CrisisId {get;set;} public decimal TargetAmount {get;set;} public string Status {get;set;}="Open"; }
+public class DonationCampaign
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+
+    public string Name { get; set; } = "";
+
+    public string Description { get; set; } = "";
+
+    public Guid CrisisId { get; set; }
+
+    public Guid? OrganisationId { get; set; }
+
+    public decimal TargetAmount { get; set; }
+
+    public string Currency { get; set; } = "LKR";
+
+    public string Status { get; set; } = "Open";
+
+    public DateTime StartDate { get; set; } = DateTime.UtcNow;
+
+    public DateTime? EndDate { get; set; }
+
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+    public Guid? CreatedBy { get; set; }
+}
 public class Donation
 {
-    public Guid Id {get;set;}=Guid.NewGuid(); public Guid CampaignId {get;set;} public Guid DonorId {get;set;}
-    public decimal Amount {get;set;} public string Currency {get;set;}="LKR"; public string Kind {get;set;}="Pledge";
-    public string Status {get;set;}="Recorded"; public DateTime At {get;set;}=DateTime.UtcNow;
+    public Guid Id { get; set; } = Guid.NewGuid();
+
+    public Guid CampaignId { get; set; }
+
+    public Guid DonorId { get; set; }
+
+    public decimal Amount { get; set; }
+
+    public string Currency { get; set; } = "LKR";
+
+    public string Kind { get; set; } = "Monetary";
+
+    public string Status { get; set; } = "PledgeRecorded";
+
+    public string? TransactionReference { get; set; }
+
+    public string? PaymentMethod { get; set; }
+
+    public string? Notes { get; set; }
+
+    public DateTime At { get; set; } = DateTime.UtcNow;
+
+    public DateTime? ReceivedAt { get; set; }
+
+    public Guid? ConfirmedBy { get; set; }
 }
 public class Notification
 {
