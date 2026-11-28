@@ -6,6 +6,7 @@ import MakeDonation from './donations/MakeDonation';
 import DonationRegister from './donations/DonationRegister';
 import DonationAllocations from './donations/DonationAllocations';
 import CampaignExpenditures from './donations/CampaignExpenditures';
+import TransparencyReports from './donations/TransparencyReports';
 
 export default function Donations({ user }) {
   const [activeTab, setActiveTab] = useState('campaigns');
@@ -36,6 +37,7 @@ export default function Donations({ user }) {
     { id: 'campaigns', label: 'Campaigns' }
   ];
   [{ id: 'history', label: 'Donation History' }]
+  [{ id: 'reports', label: 'Transparency Reports' }]
 
 
   return (
@@ -72,6 +74,8 @@ export default function Donations({ user }) {
 
   {activeTab === 'expenses' && isFundingOfficer &&
   <CampaignExpenditures />}
+  {activeTab === 'reports' &&
+  <TransparencyReports />}
     </section>
   );
   
