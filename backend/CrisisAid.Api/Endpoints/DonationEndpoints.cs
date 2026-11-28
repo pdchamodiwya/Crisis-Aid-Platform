@@ -11,6 +11,132 @@ public static class DonationEndpoints
 {
     public static void Map(RouteGroupBuilder api)
     {
+
+        api.MapPut("/campaigns/{id:guid}", async (
+    Guid id,
+    CampaignInput dto,
+    HttpContext ctx,
+    AidDbContext db) =>
+{
+    var campaign = await db.Campaigns.FindAsync(id);
+    var actor = await db.Users
+        .FindAsync(Access.UserId(ctx.User));
+
+    if (campaign == null || actor == null)
+        return Results.NotFound();
+
+    if (Access.Role(ctx.User) != Roles.Admin &&
+        (actor.OrganisationId == null ||
+         actor.OrganisationId != campaign.OrganisationId))
+        return Results.Forbid();
+
+    if (campaign.Status == "Closed")
+        return Results.Conflict("Campaign is closed.");
+
+    if (string.IsNullOrWhiteSpace(dto.Name) ||
+        dto.Name.Length > 120 ||
+        dto.TargetAmount <= 0 ||
+        decimal.Round(dto.TargetAmount, 2) != dto.TargetAmount ||
+        !new[] { "LKR", "USD", "EUR" }.Contains(dto.Currency) ||
+        (dto.EndDate.HasValue &&
+         dto.EndDate < dto.StartDate))
+        return Results.BadRequest("Invalid campaign details.");
+
+    if (!await db.Crises.AnyAsync(x => x.Id == dto.CrisisId))
+        return Results.BadRequest("Invalid crisis ID.");
+
+    if ((campaign.Currency != dto.Currency ||
+         campaign.CrisisId != dto.CrisisId) &&
+        await db.Donations.AnyAsync(x => x.CampaignId == id))
+        return Results.Conflict(
+            "Currency and crisis cannot change after donations.");
+
+    campaign.Name = dto.Name.Trim();
+    campaign.Description = dto.Description ?? "";
+    campaign.TargetAmount = dto.TargetAmount;
+    campaign.Currency = dto.Currency;
+    campaign.CrisisId = dto.CrisisId;
+    campaign.StartDate = dto.StartDate;
+    campaign.EndDate = dto.EndDate;
+
+    TraceLog.Add(db, "Campaign", id, "Updated", actor.Id);
+
+    await db.SaveChangesAsync();
+
+    return Results.Ok(campaign);
+})
+.RequireAuthorization(p =>
+    p.RequireRole(Roles.Funding, Roles.Admin));
+
+    api.MapPatch("/campaigns/{id:guid}/close", async (
+    Guid id,
+    HttpContext ctx,
+    AidDbContext db) =>
+{
+    var campaign = await db.Campaigns.FindAsync(id);
+    var actor = await db.Users
+        .FindAsync(Access.UserId(ctx.User));
+
+    if (campaign == null || actor == null)
+        return Results.NotFound();
+
+    if (Access.Role(ctx.User) != Roles.Admin &&
+        (actor.OrganisationId == null ||
+         campaign.OrganisationId != actor.OrganisationId))
+        return Results.Forbid();
+
+    campaign.Status = "Closed";
+
+    TraceLog.Add(db, "Campaign", id, "Closed", actor.Id);
+
+    await db.SaveChangesAsync();
+
+    return Results.Ok(campaign);
+})
+.RequireAuthorization(p =>
+    p.RequireRole(Roles.Funding, Roles.Admin));
+        api.MapGet("/material-donations/intake", async (
+    HttpContext ctx,
+    AidDbContext db) =>
+{
+    var actor = await db.Users
+        .FindAsync(Access.UserId(ctx.User));
+
+    if (actor == null)
+        return Results.Forbid();
+
+    var admin = Access.Role(ctx.User) == Roles.Admin;
+
+    var items = await (
+        from m in db.MaterialDonationItems
+        join d in db.Donations
+            on m.DonationId equals d.Id
+        join c in db.Campaigns
+            on d.CampaignId equals c.Id
+        where d.Status == "Confirmed" &&
+              d.Kind == "Material" &&
+              m.ReceivedQuantity > 0 &&
+              m.InventoryReceivedAt == null &&
+              (admin ||
+               (actor.OrganisationId != null &&
+                actor.OrganisationId == c.OrganisationId))
+        select new
+        {
+            m.Id,
+            m.DonationId,
+            m.ItemName,
+            m.Category,
+            m.ReceivedQuantity,
+            m.Unit,
+            m.Condition,
+            m.ReceivingLocation
+        }
+    ).ToListAsync();
+
+    return Results.Ok(items);
+})
+.RequireAuthorization(p =>
+    p.RequireRole(Roles.Admin, Roles.Funding));
         // ==========================================
         // 01 - GET ALL CAMPAIGNS
         // ==========================================
@@ -214,30 +340,180 @@ public static class DonationEndpoints
                 Roles.Donor,
                 Roles.Citizen));
 
+
+                api.MapGet("/campaigns/{id:guid}/summary", async (
+    Guid id,
+    AidDbContext db) =>
+{
+    var campaign = await db.Campaigns.FindAsync(id);
+
+    if (campaign == null)
+        return Results.NotFound();
+
+    var monetary = db.Donations.Where(d =>
+        d.CampaignId == id &&
+        d.Kind == "Monetary");
+
+    var pledged = await monetary
+        .Where(d => d.Status == "PledgeRecorded")
+        .SumAsync(d => (decimal?)d.Amount) ?? 0;
+
+    var received = await monetary
+        .Where(d => d.Status == "Confirmed")
+        .SumAsync(d => (decimal?)d.Amount) ?? 0;
+
+    var approvedAllocations =
+        from a in db.DonationAllocations
+        join d in monetary
+            on a.DonationId equals d.Id
+        where a.Status == "Approved" &&
+              d.Status == "Confirmed"
+        select a;
+
+    var allocated = await approvedAllocations
+        .SumAsync(a => (decimal?)a.Amount) ?? 0;
+
+    var expenseQuery =
+        from e in db.CampaignExpenditures
+        join a in approvedAllocations
+            on e.AllocationId equals a.Id
+        select new { e.Amount, a.Category };
+
+    var spent = await expenseQuery
+        .SumAsync(e => (decimal?)e.Amount) ?? 0;
+
+    var breakdown = await expenseQuery
+        .GroupBy(e => e.Category)
+        .Select(g => new
+        {
+            category = g.Key,
+            amount = g.Sum(e => e.Amount)
+        })
+        .ToListAsync();
+
+    return Results.Ok(new
+    {
+        campaign.Id,
+        campaign.Name,
+        campaign.Currency,
+        campaign.TargetAmount,
+        pledged,
+        received,
+        allocated,
+        spent,
+        unallocated = received - allocated,
+        unspent = received - spent,
+        progress = campaign.TargetAmount > 0
+            ? received / campaign.TargetAmount * 100
+            : 0,
+        breakdown
+    });
+});
+
+api.MapGet("/donations/report/me", async (
+    HttpContext ctx,
+    AidDbContext db) =>
+{
+    var userId = Access.UserId(ctx.User);
+
+    var rows = await (
+        from d in db.Donations
+        join c in db.Campaigns
+            on d.CampaignId equals c.Id
+        where d.DonorId == userId
+        select new
+        {
+            d.Id,
+            d.Amount,
+            d.Currency,
+            d.Kind,
+            d.Status,
+            d.At,
+            campaignName = c.Name
+        }
+    ).ToListAsync();
+
+    return Results.Ok(rows);
+});
+
         // ==========================================
         // 04 - GET DONATIONS
         // ==========================================
 
         api.MapGet("/donations", async (
-            HttpContext ctx,
-            AidDbContext db) =>
+    HttpContext ctx,
+    AidDbContext db) =>
+{
+    var userId = Access.UserId(ctx.User);
+    var role = Access.Role(ctx.User);
+
+    var actor = await db.Users.FindAsync(userId);
+
+    if (actor == null)
+        return Results.Forbid();
+
+    var query =
+        from d in db.Donations
+        join c in db.Campaigns
+            on d.CampaignId equals c.Id
+        where role == Roles.Admin ||
+              (role == Roles.Funding &&
+               actor.OrganisationId != null &&
+               c.OrganisationId == actor.OrganisationId) ||
+              d.DonorId == userId
+        select new
         {
-            IQueryable<Donation> q =
-                db.Donations.AsNoTracking();
+            d.Id,
+            d.CampaignId,
+            d.Kind,
+            d.Amount,
+            d.Currency,
+            d.Status,
+            d.At,
+            campaignName = c.Name
+        };
+        api.MapPost("/donations/{id:guid}/reject", async (
+    Guid id,
+    HttpContext ctx,
+    AidDbContext db) =>
+{
+    var donation = await db.Donations.FindAsync(id);
+    var actor = await db.Users
+        .FindAsync(Access.UserId(ctx.User));
 
-            if (!Access.CanSeeAllDonations(ctx.User))
-            {
-                q = q.Where(x =>
-                    x.DonorId ==
-                    Access.UserId(ctx.User));
-            }
+    if (donation == null || actor == null)
+        return Results.NotFound();
 
-            return await q
-                .OrderByDescending(x => x.At)
-                .Take(200)
-                .ToListAsync();
-        });
+    var campaign = await db.Campaigns
+        .FindAsync(donation.CampaignId);
 
+    if (campaign == null)
+        return Results.NotFound();
+
+    if (Access.Role(ctx.User) != Roles.Admin &&
+        (actor.OrganisationId == null ||
+         campaign.OrganisationId != actor.OrganisationId))
+        return Results.Forbid();
+
+    if (donation.Status != "PledgeRecorded" &&
+        donation.Status != "UnderReview")
+        return Results.Conflict(
+            "This donation cannot be rejected.");
+
+    donation.Status = "Rejected";
+
+    TraceLog.Add(
+        db, "Donation", id, "Rejected", actor.Id);
+
+    await db.SaveChangesAsync();
+
+    return Results.Ok(donation);
+})
+.RequireAuthorization(p =>
+    p.RequireRole(Roles.Funding, Roles.Admin));
+
+    return Results.Ok(await query.ToListAsync());
+});
         // ==========================================
         // 05 - REGISTER MATERIAL DONATION
         // ==========================================
@@ -491,7 +767,8 @@ public static class DonationEndpoints
             Guid id,
             ConfirmDonationInput dto,
             HttpContext ctx,
-            AidDbContext db) =>
+            AidDbContext db,
+            DonationFraudService fraudService) =>
         {
             try
             {
@@ -780,6 +1057,62 @@ public static class DonationEndpoints
                         error = "Unsupported donation type."
                     });
                 }
+                donation.TransactionReference =
+    dto.TransactionReference?.Trim().ToUpperInvariant();
+
+var reasons = await fraudService.DetectAsync(donation);
+
+var blocked = false;
+
+foreach (var reason in reasons)
+{
+    var previous = await db.DonationFraudFlags
+        .Where(x =>
+            x.DonationId == donation.Id &&
+            x.Reason == reason)
+        .OrderByDescending(x => x.CreatedAt)
+        .FirstOrDefaultAsync();
+
+    var duplicate =
+        reason == "Duplicate transaction reference";
+
+    if (!duplicate && previous != null &&
+        (previous.Status == "Resolved" ||
+         previous.Status == "FalsePositive"))
+        continue;
+
+    blocked = true;
+
+    if (previous == null ||
+        previous.Status == "Resolved" ||
+        previous.Status == "FalsePositive")
+    {
+        db.DonationFraudFlags.Add(new DonationFraudFlag
+        {
+            DonationId = donation.Id,
+            Reason = reason,
+            Severity = duplicate ? "High" : "Medium",
+            Status = "Open"
+        });
+    }
+}
+
+if (blocked || await db.DonationFraudFlags.AnyAsync(x =>
+    x.DonationId == donation.Id &&
+    (x.Status == "Open" ||
+     x.Status == "Investigating")))
+{
+    donation.Status = "UnderReview";
+
+    TraceLog.Add(
+        db, "Donation", donation.Id,
+        "FlaggedForReview", Access.UserId(ctx.User));
+
+    await db.SaveChangesAsync();
+
+    return Results.Accepted(
+        value: new { donation.Status });
+}
 
                 // ======================================
                 // 11. CONFIRM THE DONATION

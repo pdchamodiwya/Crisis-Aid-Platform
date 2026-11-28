@@ -1,12 +1,90 @@
-import { useEffect, useState } from 'react';
-import { Heart, CreditCard, HandCoins } from 'lucide-react';
-import { get, post, formatDate } from '../api';
-import { SectionHeading, Panel, Field, Button, Progress, Pill, ErrorMessage, Success, SafeTable, Empty } from '../components/UI';
+import CampaignManagement from './donations/CampaignManagement';
+import { useState } from 'react';
+import LegacyDonations from './LegacyDonations';
+import './donations/donations.css';
+import MakeDonation from './donations/MakeDonation';
+import DonationRegister from './donations/DonationRegister';
+import DonationAllocations from './donations/DonationAllocations';
+import CampaignExpenditures from './donations/CampaignExpenditures';
+import TransparencyReports from './donations/TransparencyReports';
+import FraudInvestigation from './donations/FraudInvestigation';
+
 export default function Donations({ user }) {
-  const [campaigns,setCampaigns]=useState([]),[donations,setDonations]=useState([]),[form,setForm]=useState({campaignId:'',amount:2500,currency:'LKR',kind:'Pledge'});
-  const [error,setError]=useState(''),[success,setSuccess]=useState('');
-  const load=async()=>{const[c,d]=await Promise.all([get('/campaigns'),get('/donations')]);setCampaigns(c);setDonations(d);setForm(s=>({...s,campaignId:s.campaignId||c[0]?.id||''}));};
-  useEffect(()=>{load().catch(e=>setError(e.message));},[]);
-  const pledge=async()=>{try{await post('/donations',{...form,amount:+form.amount});setSuccess('Pledge recorded. No payment has been taken.');setError('');await load();}catch(e){setError(e.message)}};
-  return <><SectionHeading kicker="FUNDING / TRANSPARENCY" title="Donations & campaigns" subtitle="Record contributions with traceable information — no live payments"/><ErrorMessage error={error}/><Success message={success}/><div className="dash-grid"><Panel title="Active appeals" subtitle="Support a verified response campaign">{campaigns.length?campaigns.map(c=><div className="campaign" key={c.id}><div className="campaign-icon"><Heart size={19}/></div><div><strong>{c.name}</strong><p className="muted">Fundraising target: {Number(c.targetAmount).toLocaleString()} LKR (illustrative, currency not enforced per campaign)</p><Pill>{c.status}</Pill></div></div>):<Empty text="No campaigns are available"/>}</Panel><Panel title="Record a donation pledge" subtitle="This records intent only; no money is collected"><div className="form-grid"><Field label="Campaign"><select value={form.campaignId} onChange={e=>setForm(s=>({...s,campaignId:e.target.value}))}>{campaigns.map(c=><option value={c.id} key={c.id}>{c.name}</option>)}</select></Field><Field label="Pledge amount"><input type="number" min="1" value={form.amount} onChange={e=>setForm(s=>({...s,amount:e.target.value}))}/></Field><Field label="Currency"><select value={form.currency} onChange={e=>setForm(s=>({...s,currency:e.target.value}))}><option>LKR</option><option>USD</option><option>EUR</option></select></Field><Button disabled={!form.campaignId} onClick={pledge}><HandCoins size={16}/> Record pledge</Button></div></Panel></div><Panel title="Contribution register" subtitle="Individual donors only see their own entries; officers can view all"><SafeTable headers={['DATE','AMOUNT','CURRENCY','TYPE','STATUS']} empty="No contributions have been recorded yet.">{donations.map(d=><tr key={d.id}><td>{formatDate(d.at)}</td><td><strong>{Number(d.amount).toLocaleString()}</strong></td><td>{d.currency}</td><td>{d.kind}</td><td><Pill>{d.status}</Pill></td></tr>)}</SafeTable></Panel></>;
+  const [activeTab, setActiveTab] = useState('campaigns');
+
+  const isFundingOfficer =
+    ['FundingOfficer', 'SystemAdministrator']
+      .includes(user?.role);
+
+        (isFundingOfficer ? [
+  { id: 'manage', label: 'Manage Campaigns' }
+] : [])
+
+(isFundingOfficer ? [
+  { id: 'allocations', label: 'Fund Allocations' }
+] : [])
+
+(isFundingOfficer ? [
+  { id: 'expenses', label: 'Expenditures' }
+] : [])
+
+  const isDonor =
+    ['Donor', 'Citizen'].includes(user?.role);
+    (isDonor ? [
+  { id: 'donate', label: 'Make a Donation' }
+] : [])
+
+(isFundingOfficer ? [
+  { id: 'fraud', label: 'Investigations' }
+] : [])
+
+  const tabs = [
+    { id: 'campaigns', label: 'Campaigns' }
+  ];
+  [{ id: 'history', label: 'Donation History' }]
+  [{ id: 'reports', label: 'Transparency Reports' }]
+
+
+  return (
+    <section>
+      <h1>Donation Management</h1>
+
+      <div className="member05-tabs">
+        {tabs.map(tab => (
+          <button
+            key={tab.id}
+            className={
+              activeTab === tab.id
+                ? 'btn primary'
+                : 'btn outline'
+            }
+            onClick={() => setActiveTab(tab.id)}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === 'campaigns' &&
+        <LegacyDonations user={user} />}
+
+        {activeTab === 'donate' && isDonor &&
+  <MakeDonation />}
+
+  {activeTab === 'history' &&
+  <DonationRegister user={user} />}
+
+  {activeTab === 'allocations' && isFundingOfficer &&
+  <DonationAllocations />}
+
+  {activeTab === 'expenses' && isFundingOfficer &&
+  <CampaignExpenditures />}
+  {activeTab === 'reports' &&
+  <TransparencyReports />}
+  {activeTab === 'fraud' && isFundingOfficer &&
+  <FraudInvestigation />}
+    </section>
+  );
+  
+  
 }

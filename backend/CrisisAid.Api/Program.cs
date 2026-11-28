@@ -63,6 +63,7 @@ builder.Services.AddSwaggerGen(o => {
         new OpenApiSecurityScheme { Reference = new OpenApiReference { Type = ReferenceType.SecurityScheme, Id = "Bearer" } }, Array.Empty<string>() } });
 });
 builder.Services.AddScoped<DonationService>();
+builder.Services.AddScoped<DonationFraudService>();
 var app = builder.Build();
 
 
