@@ -4,6 +4,7 @@ import LegacyDonations from './LegacyDonations';
 import './donations/donations.css';
 import MakeDonation from './donations/MakeDonation';
 import DonationRegister from './donations/DonationRegister';
+import DonationAllocations from './donations/DonationAllocations';
 
 export default function Donations({ user }) {
   const [activeTab, setActiveTab] = useState('campaigns');
@@ -14,6 +15,10 @@ export default function Donations({ user }) {
 
         (isFundingOfficer ? [
   { id: 'manage', label: 'Manage Campaigns' }
+] : [])
+
+(isFundingOfficer ? [
+  { id: 'allocations', label: 'Fund Allocations' }
 ] : [])
 
   const isDonor =
@@ -56,6 +61,9 @@ export default function Donations({ user }) {
 
   {activeTab === 'history' &&
   <DonationRegister user={user} />}
+
+  {activeTab === 'allocations' && isFundingOfficer &&
+  <DonationAllocations />}
     </section>
   );
   
