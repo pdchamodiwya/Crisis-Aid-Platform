@@ -1,3 +1,4 @@
+using CrisisAid.Api.Endpoints;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Threading.RateLimiting;
@@ -113,6 +114,7 @@ app.MapPost("/api/auth/login", async (LoginDto input, AidDbContext db, IPassword
 
 var api = app.MapGroup("/api").RequireAuthorization();
 ExtendedModules.Map(api);
+DonationEndpoints.Map(api);
 api.MapGet("/me", async (HttpContext ctx, AidDbContext db) => {
     var id = Access.UserId(ctx.User);
     return await db.Users.Where(x => x.Id == id).Select(x => new { x.Id, x.DisplayName, x.Email, x.Role, x.OrganisationId }).FirstOrDefaultAsync() is { } me
