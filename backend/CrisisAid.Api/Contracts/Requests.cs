@@ -12,12 +12,17 @@ public record ResourceDto(string Name, string Category, string Unit, int Availab
     double Latitude, double Longitude, bool Accessible = true, DateTime? ExpiresAt = null);
 public record AllocateResourceDto(Guid RequestId, Guid ResourceId, int Quantity);
 public record ShelterDto(string Name, string Area, int Capacity, bool Accessible, string Facilities,
-    double Latitude, double Longitude);
+    double Latitude, double Longitude, string ContactName = "", string ContactPhone = "",
+    string ContactEmail = "", string OpeningHours = "", bool MedicalFacilities = false,
+    bool SanitationFacilities = false, bool FoodAvailable = false);
 public record AllocateShelterDto(Guid RequestId, Guid ShelterId, int PeopleCount);
-public record VolunteerProfileDto(string Skills, string Area, bool Available);
+public record VolunteerProfileDto(string Skills, string Area, bool Available, double? Latitude = null, double? Longitude = null);
 public record VerifyVolunteerDto(bool Verified);
-public record AssignVolunteerDto(Guid? RequestId, Guid VolunteerId, string RequiredSkill, string Description);
-public record TaskStatusDto(string Status);
+public record AssignVolunteerDto(Guid? RequestId, Guid VolunteerId, string RequiredSkill, string Description,
+    DateTimeOffset? ScheduledStartAt = null, int? DurationMinutes = null, string Urgency = "Medium",
+    double? Latitude = null, double? Longitude = null, int CheckInIntervalMinutes = 30);
+public record TaskStatusDto(string Status, string Reason = "", string Notes = "", decimal? HoursWorked = null,
+    Guid? ReassignToVolunteerId = null, bool VerifyCompletion = false);
 public record CampaignDto(string Name, Guid CrisisId, decimal TargetAmount);
 public record DonationDto(Guid CampaignId, decimal Amount, string Currency, string Kind);
 public record RoleDto(string Role);
