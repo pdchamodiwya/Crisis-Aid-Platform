@@ -154,6 +154,7 @@ public class Notification
     public Guid Id {get;set;}=Guid.NewGuid(); public Guid RecipientId {get;set;} public string Title {get;set;}="";
     public string Message {get;set;}=""; public string Language {get;set;}="en";
     public bool Read {get;set;}=false; public DateTime At {get;set;}=DateTime.UtcNow;
+    public string? EventKey { get; set; }
 }
 public class OutboxMessage
 {
@@ -162,6 +163,19 @@ public class OutboxMessage
     public string Status {get;set;}="Pending"; public int Attempts {get;set;}=0;
     public DateTime CreatedAt {get;set;}=DateTime.UtcNow; public DateTime? NextAttemptAt {get;set;}
     public string? LastError {get;set;}
+    public string Channel { get; set; } = "Email";
+
+public string Language { get; set; } = "en";
+
+public string? ProviderMessageId { get; set; }
+
+public DateTime? SentAt { get; set; }
+
+public DateTime? LockedUntil { get; set; }
+
+public Guid? ClaimToken { get; set; }
+
+public Guid? PushSubscriptionId { get; set; }
 }
 public class AuditEvent
 {
