@@ -74,15 +74,74 @@ api.MapPost("/campaigns", async (CampaignDto dto, HttpContext ctx, AidDbContext 
     db.Campaigns.Add(campaign); TraceLog.Add(db, "Campaign", campaign.Id, "Created", Access.UserId(ctx.User));
     await db.SaveChangesAsync(); return Results.Ok(campaign);
 }).RequireAuthorization(p => p.RequireRole(Roles.Funding, Roles.Coordinator, Roles.Admin));
-api.MapPost("/donations", async (DonationDto dto, HttpContext ctx, AidDbContext db) => {
-    if (dto.Amount <= 0 || !new[] { "LKR", "USD", "EUR" }.Contains(dto.Currency) ||
-        !await db.Campaigns.AnyAsync(x => x.Id == dto.CampaignId && x.Status == "Open")) return Results.BadRequest();
-    var donation = new Donation { DonorId = Access.UserId(ctx.User), CampaignId = dto.CampaignId,
-        Amount = dto.Amount, Currency = dto.Currency, Kind = dto.Kind, Status = "PledgeRecorded" };
-    db.Donations.Add(donation); TraceLog.Add(db, "Donation", donation.Id, "PledgeRecorded", donation.DonorId,
-        new { donation.CampaignId, donation.Amount, donation.Currency });
-    await db.SaveChangesAsync(); return Results.Ok(donation);
-});
+
+
+api.MapPost("/donations", async (
+    MonetaryDonationInput dto,
+    HttpContext ctx,
+    AidDbContext db) =>
+{
+    if (dto.Amount <= 0 ||
+        dto.Amount > 9999999999999999.99m ||
+        decimal.Round(dto.Amount, 2) != dto.Amount)
+    {
+        return Results.BadRequest(new
+        {
+            error = "Enter a valid donation amount."
+        });
+    }
+
+    var campaign = await db.Campaigns
+        .FindAsync(dto.CampaignId);
+
+    if (campaign == null)
+        return Results.NotFound();
+
+    var now = DateTime.UtcNow;
+
+    if (campaign.Status != "Open" ||
+        campaign.StartDate > now ||
+        campaign.EndDate < now)
+    {
+        return Results.Conflict(new
+        {
+            error = "Campaign is not accepting donations."
+        });
+    }
+
+    if (campaign.Currency != dto.Currency)
+    {
+        return Results.BadRequest(new
+        {
+            error = "Donation currency must match the campaign."
+        });
+    }
+
+    var donation = new Donation
+    {
+        CampaignId = campaign.Id,
+        DonorId = Access.UserId(ctx.User),
+        Amount = dto.Amount,
+        Currency = dto.Currency,
+        Kind = "Monetary",
+        Status = "PledgeRecorded",
+        Notes = dto.Notes
+    };
+
+    db.Donations.Add(donation);
+
+    TraceLog.Add(
+        db, "Donation", donation.Id,
+        "PledgeRecorded", donation.DonorId);
+
+    await db.SaveChangesAsync();
+
+    return Results.Created(
+        $"/api/donations/{donation.Id}",
+        donation);
+})
+.RequireAuthorization(p =>
+    p.RequireRole(Roles.Donor, Roles.Citizen));
 api.MapGet("/donations", async (HttpContext ctx, AidDbContext db) => {
     IQueryable<Donation> q = db.Donations.AsNoTracking();
     if (!Access.Staff(ctx.User)) q = q.Where(x => x.DonorId == Access.UserId(ctx.User));
