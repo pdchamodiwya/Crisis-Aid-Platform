@@ -78,22 +78,83 @@ public class Shelter
     public string Area {get;set;}=""; public int Capacity {get;set;} public int Occupancy {get;set;}
     public bool Accessible {get;set;} public string Facilities {get;set;}="";
     public double Latitude {get;set;} public double Longitude {get;set;} public string Status {get;set;}="Open";
+    public string ContactName {get;set;}=""; public string ContactPhone {get;set;}=""; public string ContactEmail {get;set;}="";
+    public string OpeningHours {get;set;}=""; public bool MedicalFacilities {get;set;} public bool SanitationFacilities {get;set;}
+    public bool FoodAvailable {get;set;} public Guid? AdministratorId {get;set;}
 }
 public class ShelterAllocation
 {
     public Guid Id {get;set;}=Guid.NewGuid(); public Guid ShelterId {get;set;} public Guid RequestId {get;set;}
     public int PeopleCount {get;set;} public Guid ApprovedBy {get;set;} public DateTime At {get;set;}=DateTime.UtcNow;
+    public string Status {get;set;}="Reserved";
+}
+public class ShelterStay
+{
+    public Guid Id {get;set;}=Guid.NewGuid(); public Guid AllocationId {get;set;} public Guid HouseholdId {get;set;}
+    public DateTime? CheckInAt {get;set;} public DateTime? CheckOutAt {get;set;} public int OccupancyCount {get;set;}
+    public string Status {get;set;}="CheckedIn";
+}
+public class AssistanceCentre
+{
+    public Guid Id {get;set;}=Guid.NewGuid(); public string Name {get;set;}=""; public string Type {get;set;}="AssistanceCentre";
+    public string Area {get;set;}=""; public string Facilities {get;set;}=""; public bool Accessible {get;set;}
+    public string ContactName {get;set;}=""; public string ContactPhone {get;set;}=""; public string ContactEmail {get;set;}="";
+    public string OpeningHours {get;set;}=""; public string Status {get;set;}="Open";
+    public double Latitude {get;set;} public double Longitude {get;set;} public Guid? AdministratorId {get;set;}
+}
+public class ShelterSupplyRequest
+{
+    public Guid Id {get;set;}=Guid.NewGuid(); public Guid ShelterId {get;set;} public Guid RequestedBy {get;set;}
+    public Guid CrisisId {get;set;} public string Category {get;set;}="Food"; public string Description {get;set;}="";
+    public int Quantity {get;set;} public string Status {get;set;}="Pending"; public Guid? AssistanceRequestId {get;set;}
+    public DateTime CreatedAt {get;set;}=DateTime.UtcNow; public DateTime UpdatedAt {get;set;}=DateTime.UtcNow;
 }
 public class VolunteerProfile
 {
     public Guid Id {get;set;}=Guid.NewGuid(); public Guid UserId {get;set;} public string Skills {get;set;}="";
     public string Area {get;set;}=""; public bool Available {get;set;}=true; public bool Verified {get;set;}=false;
+    public double? Latitude {get;set;} public double? Longitude {get;set;}
+}
+public class VolunteerSkill
+{
+    public Guid Id {get;set;}=Guid.NewGuid(); public Guid VolunteerId {get;set;} public string Name {get;set;}="";
+    public bool Verified {get;set;} public Guid? VerifiedBy {get;set;} public DateTime? VerifiedAt {get;set;}
+}
+public class VolunteerAvailability
+{
+    public Guid Id {get;set;}=Guid.NewGuid(); public Guid VolunteerId {get;set;}
+    public DateTime StartsAt {get;set;} public DateTime EndsAt {get;set;}
+}
+public class VolunteerQualification
+{
+    public Guid Id {get;set;}=Guid.NewGuid(); public Guid VolunteerId {get;set;} public string Name {get;set;}="";
+    public string Issuer {get;set;}=""; public string Reference {get;set;}="";
+    public bool Verified {get;set;} public Guid? VerifiedBy {get;set;} public DateTime? VerifiedAt {get;set;}
+    public DateTime? ExpiresAt {get;set;}
+}
+public class VolunteerActivityLog
+{
+    public Guid Id {get;set;}=Guid.NewGuid(); public Guid VolunteerId {get;set;} public Guid? TaskId {get;set;}
+    public Guid? ActorId {get;set;} public string Activity {get;set;}=""; public string Notes {get;set;}="";
+    public decimal? HoursWorked {get;set;} public DateTime At {get;set;}=DateTime.UtcNow;
+}
+public class VolunteerCheckIn
+{
+    public Guid Id {get;set;}=Guid.NewGuid(); public Guid TaskId {get;set;} public Guid VolunteerId {get;set;}
+    public DateTime At {get;set;}=DateTime.UtcNow; public double? Latitude {get;set;} public double? Longitude {get;set;}
+    public string Area {get;set;}=""; public string Status {get;set;}="Received"; public Guid? ResolvedBy {get;set;}
+    public DateTime? ResolvedAt {get;set;} public string ResolutionNotes {get;set;}="";
 }
 public class VolunteerTask
 {
     public Guid Id {get;set;}=Guid.NewGuid(); public Guid? RequestId {get;set;} public Guid VolunteerId {get;set;}
     public string RequiredSkill {get;set;}=""; public string Description {get;set;}=""; public string Status {get;set;}="Assigned";
     public Guid AssignedBy {get;set;} public DateTime At {get;set;}=DateTime.UtcNow; public DateTime? CompletedAt {get;set;}
+    public DateTime? ScheduledStartAt {get;set;} public int? DurationMinutes {get;set;} public string Urgency {get;set;}="Medium";
+    public double? Latitude {get;set;} public double? Longitude {get;set;} public string DeclineReason {get;set;}="";
+    public decimal? HoursWorked {get;set;} public string CompletionNotes {get;set;}=""; public bool CoordinatorVerified {get;set;}
+    public Guid? VerifiedBy {get;set;} public DateTime? VerifiedAt {get;set;} public int CheckInIntervalMinutes {get;set;}=30;
+    public DateTime? NextCheckInDueAt {get;set;} public DateTime? OverdueAlertSentAt {get;set;}
 }
 public class DonationCampaign { public Guid Id {get;set;}=Guid.NewGuid(); public string Name {get;set;}=""; public Guid CrisisId {get;set;} public decimal TargetAmount {get;set;} public string Status {get;set;}="Open"; }
 public class Donation
