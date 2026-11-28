@@ -44,6 +44,16 @@ services:
       SMTP__From: ${SMTP_FROM:-no-reply@example.org}
       SMTP__Username: ${SMTP_USERNAME:-}
       SMTP__Password: ${SMTP_PASSWORD:-}
-    ports: ["8080:8080"]
+      SMTP__EnableSsl: ${SMTP_ENABLE_SSL:-true}
+      SMS__Enabled: ${SMS_ENABLED:-false}
+SMS__TestMode: ${SMS_TEST_MODE:-true}
+SMS__AccountSid: ${SMS_ACCOUNT_SID:-}
+SMS__AuthToken: ${SMS_AUTH_TOKEN:-}
+SMS__From: ${SMS_FROM:-}
+Push__Enabled: ${PUSH_ENABLED:-false}
+Push__PublicKey: ${VAPID_PUBLIC_KEY:-}
+Push__PrivateKey: ${VAPID_PRIVATE_KEY:-}
+Push__Subject: ${VAPID_SUBJECT:-}
+ports: ["8080:8080"]
 volumes:
   sql_data:
