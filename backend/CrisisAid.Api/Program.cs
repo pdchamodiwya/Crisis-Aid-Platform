@@ -60,7 +60,8 @@ builder.Services.AddSwaggerGen(o => {
 });
 builder.Services.AddScoped<DonationService>();
 var app = builder.Build();
-builder.Services.AddScoped<DonationService>();
+
+
 app.UseExceptionHandler(error => error.Run(async ctx => {
     ctx.Response.StatusCode = 500;
     await ctx.Response.WriteAsJsonAsync(new { error = "Unexpected server error; see server log" });
