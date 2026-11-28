@@ -17,7 +17,11 @@ public static class Access
         InRoles(principal, Roles.VolunteerCoordinator, Roles.Coordinator, Roles.Admin);
     public static bool CanSeeAllDonations(ClaimsPrincipal principal) =>
         InRoles(principal, Roles.Funding, Roles.Coordinator, Roles.Admin);
-    public static bool CanRead(ClaimsPrincipal principal, AssistanceRequest req) => Staff(principal) || req.CitizenId == UserId(principal);
+
+    public static bool CanSeeAllRequests(ClaimsPrincipal principal) =>
+        InRoles(principal, Roles.Coordinator, Roles.CaseManager, Roles.Logistics,
+            Roles.ShelterAdmin, Roles.VolunteerCoordinator, Roles.Admin);
+    public static bool CanRead(ClaimsPrincipal principal, AssistanceRequest req) => CanSeeAllRequests(principal) || req.CitizenId == UserId(principal);
     public static bool Coordinates(double lat, double lon) => lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180;
 }
 public static class TraceLog

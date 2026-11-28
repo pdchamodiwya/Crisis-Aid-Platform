@@ -130,7 +130,7 @@ api.MapPost("/crises", async (CrisisDto dto, HttpContext ctx, AidDbContext db) =
 
 var requests = api.MapGroup("/requests");
 requests.MapGet("/", async (HttpContext ctx, IRequestRepository repo, string? status, Guid? crisisId, CancellationToken ct) =>
-    await repo.ListVisibleAsync(Access.UserId(ctx.User), Access.Staff(ctx.User), status, crisisId, ct));
+    await repo.ListVisibleAsync(Access.UserId(ctx.User), Access.CanSeeAllRequests(ctx.User), status, crisisId, ct));
 requests.MapPost("/", async (AssistanceDto dto, HttpContext ctx, AidDbContext db) => {
     if (!Access.Coordinates(dto.Latitude, dto.Longitude) || dto.PeopleAffected < 1 || dto.RequestedQuantity < 1 ||
         string.IsNullOrWhiteSpace(dto.Description) || dto.Description.Length > 2000 ||
