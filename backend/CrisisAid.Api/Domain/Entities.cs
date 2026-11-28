@@ -42,6 +42,7 @@ public class AssistanceRequest
     public string Category {get;set;}="Other"; public string Description {get;set;}="";
     public string Urgency {get;set;}="Medium"; public string Status {get;set;}="Submitted";
     public int PeopleAffected {get;set;}=1; public int RequestedQuantity {get;set;}=1;
+    [MaxLength(40)] public string Unit {get;set;}="unit-unspecified";
     public bool MedicalEmergency {get;set;} public bool AccessibilityNeeded {get;set;}
     public double Latitude {get;set;} public double Longitude {get;set;}
     public string? EvidenceUrl {get;set;} public Guid? AssignedOrganisationId {get;set;}
