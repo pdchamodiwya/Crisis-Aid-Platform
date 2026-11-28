@@ -59,6 +59,7 @@ builder.Services.AddSwaggerGen(o => {
         new OpenApiSecurityScheme { Reference = new OpenApiReference { Type = ReferenceType.SecurityScheme, Id = "Bearer" } }, Array.Empty<string>() } });
 });
 var app = builder.Build();
+builder.Services.AddScoped<DonationService>();
 app.UseExceptionHandler(error => error.Run(async ctx => {
     ctx.Response.StatusCode = 500;
     await ctx.Response.WriteAsJsonAsync(new { error = "Unexpected server error; see server log" });
