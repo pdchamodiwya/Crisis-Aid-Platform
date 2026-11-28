@@ -7,6 +7,7 @@ import DonationRegister from './donations/DonationRegister';
 import DonationAllocations from './donations/DonationAllocations';
 import CampaignExpenditures from './donations/CampaignExpenditures';
 import TransparencyReports from './donations/TransparencyReports';
+import FraudInvestigation from './donations/FraudInvestigation';
 
 export default function Donations({ user }) {
   const [activeTab, setActiveTab] = useState('campaigns');
@@ -31,6 +32,10 @@ export default function Donations({ user }) {
     ['Donor', 'Citizen'].includes(user?.role);
     (isDonor ? [
   { id: 'donate', label: 'Make a Donation' }
+] : [])
+
+(isFundingOfficer ? [
+  { id: 'fraud', label: 'Investigations' }
 ] : [])
 
   const tabs = [
@@ -76,6 +81,8 @@ export default function Donations({ user }) {
   <CampaignExpenditures />}
   {activeTab === 'reports' &&
   <TransparencyReports />}
+  {activeTab === 'fraud' && isFundingOfficer &&
+  <FraudInvestigation />}
     </section>
   );
   
