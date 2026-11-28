@@ -412,7 +412,7 @@ volunteers.MapPost("/tasks", async (AssignVolunteerDto dto, HttpContext ctx, Aid
     await db.SaveChangesAsync(); return Results.Ok(task);
 }).RequireAuthorization(p => p.RequireRole(Roles.VolunteerCoordinator, Roles.Coordinator, Roles.Admin));
 volunteers.MapGet("/tasks", async (HttpContext ctx, AidDbContext db) => {
-    if (Access.Staff(ctx.User)) return Results.Ok(await db.VolunteerTasks.OrderByDescending(x => x.At).ToListAsync());
+        if (Access.CanManageVolunteers(ctx.User)) return Results.Ok(await db.VolunteerTasks.OrderByDescending(x => x.At).ToListAsync());
     var id = Access.UserId(ctx.User);
     var volunteerIds = db.Volunteers.Where(x => x.UserId == id).Select(x => x.Id);
     return Results.Ok(await db.VolunteerTasks.Where(x => volunteerIds.Contains(x.VolunteerId)).ToListAsync());
@@ -420,15 +420,13 @@ volunteers.MapGet("/tasks", async (HttpContext ctx, AidDbContext db) => {
 volunteers.MapPatch("/tasks/{id:guid}", async (Guid id, TaskStatusDto dto, HttpContext ctx, AidDbContext db) => {
     var task = await db.VolunteerTasks.FindAsync(id); if (task == null) return Results.NotFound();
     var profile = await db.Volunteers.FindAsync(task.VolunteerId); if (profile == null) return Results.NotFound();
-    if (!Access.Staff(ctx.User) && profile.UserId != Access.UserId(ctx.User)) return Results.Forbid();
+        if (!Access.CanManageVolunteers(ctx.User) && profile.UserId != Access.UserId(ctx.User)) return Results.Forbid();
     if (!((task.Status == "Assigned" && dto.Status == "Accepted") || (task.Status == "Accepted" && dto.Status == "Completed")))
         return Results.Conflict(new { error = "Invalid task state transition" });
     task.Status = dto.Status; if (dto.Status == "Completed") { task.CompletedAt = DateTime.UtcNow; profile.Available = true; }
     TraceLog.Add(db, "VolunteerTask", id, dto.Status, Access.UserId(ctx.User));
     await db.SaveChangesAsync(); return Results.Ok(task);
 });
-
-
 
 api.MapGet("/notifications", async (HttpContext ctx, AidDbContext db) =>
     await db.Notifications.Where(x => x.RecipientId == Access.UserId(ctx.User)).OrderByDescending(x => x.At).Take(100).ToListAsync());
