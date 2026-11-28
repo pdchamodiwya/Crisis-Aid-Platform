@@ -61,14 +61,17 @@ public class ResourceItem
 {
     public Guid Id {get;set;}=Guid.NewGuid(); public Guid? OrganisationId {get;set;} public string Name {get;set;}="";
     public string Category {get;set;}="Food"; public string Unit {get;set;}="packs";
-    public int AvailableQuantity {get;set;} public string Area {get;set;}="";
-    public bool Accessible {get;set;}=true; public DateTime? ExpiresAt {get;set;}
+    public int AvailableQuantity {get;set;} public int TotalQuantity {get;set;} public int ReservedQuantity {get;set;}
+    public string Description {get;set;}=""; public string Condition {get;set;}="Good"; public string BatchNumber {get;set;}="";
+    public string Area {get;set;}=""; public bool Accessible {get;set;}=true; public bool IsActive {get;set;}=true;
+    public DateTime? ExpiresAt {get;set;} public DateTime CreatedAt {get;set;}=DateTime.UtcNow; public DateTime UpdatedAt {get;set;}=DateTime.UtcNow;
     public double Latitude {get;set;} public double Longitude {get;set;}
 }
 public class ResourceAllocation
 {
     public Guid Id {get;set;}=Guid.NewGuid(); public Guid ResourceId {get;set;} public Guid RequestId {get;set;}
-    public int Quantity {get;set;} public string Status {get;set;}="Reserved";
+    public int Quantity {get;set;} public int QuantityRequested {get;set;} public int QuantityAllocated {get;set;} public int QuantityRemaining {get;set;}
+    public string Status {get;set;}="Reserved"; public string Notes {get;set;}="";
     public Guid ApprovedBy {get;set;} public DateTime At {get;set;}=DateTime.UtcNow;
     public DateTime? DispatchedAt {get;set;}
 }
@@ -189,3 +192,55 @@ public class PublicAlert { public Guid Id {get;set;}=Guid.NewGuid(); public Guid
 public class HouseholdProfile { public Guid Id {get;set;}=Guid.NewGuid(); public Guid UserId {get;set;} public string Area {get;set;}=""; public int Members {get;set;}=1; public bool AccessibilityNeeded {get;set;} public string Contact {get;set;}=""; public DateTime UpdatedAt {get;set;}=DateTime.UtcNow; }
 public class AssistanceFeedback { public Guid Id {get;set;}=Guid.NewGuid(); public Guid RequestId {get;set;} public Guid CitizenId {get;set;} public int Rating {get;set;} public string Comments {get;set;}=""; public DateTime CreatedAt {get;set;}=DateTime.UtcNow; }
 public class PartnerOffer { public Guid Id {get;set;}=Guid.NewGuid(); public Guid OrganisationId {get;set;} public Guid CreatedBy {get;set;} public string ResourceCategory {get;set;}=""; public string Area {get;set;}=""; public int Quantity {get;set;} public string Notes {get;set;}=""; public string Status {get;set;}="Offered"; public DateTime CreatedAt {get;set;}=DateTime.UtcNow; }
+
+// Member 03: Resource, Logistics and Partner Coordination
+public class StockMovement
+{
+    public Guid Id {get;set;}=Guid.NewGuid(); public Guid ResourceId {get;set;}
+    public string MovementType {get;set;}="Stock Received"; // Stock Received, Stock Reserved, Stock Dispatched, Stock Delivered, Stock Returned, Stock Adjusted, Stock Damaged, Stock Expired
+    public int Quantity {get;set;} public Guid? ReferenceId {get;set;} public string Notes {get;set;}="";
+    public Guid? PerformedBy {get;set;} public DateTime CreatedAt {get;set;}=DateTime.UtcNow;
+}
+
+public class DispatchRecord
+{
+    public Guid Id {get;set;}=Guid.NewGuid(); public Guid AllocationId {get;set;}
+    public string VehicleId {get;set;}=""; public string AssignedDriver {get;set;}=""; public Guid? AssignedVolunteerId {get;set;}
+    public string DepartureLocation {get;set;}=""; public string Destination {get;set;}="";
+    public DateTime? DepartureTime {get;set;} public DateTime? EstimatedArrivalTime {get;set;} public DateTime? ActualArrivalTime {get;set;}
+    public int DispatchedQuantity {get;set;} public int DeliveredQuantity {get;set;}
+    public string DeliveryStatus {get;set;}="ReadyForDispatch"; // ReadyForDispatch, Dispatched, InTransit, Delivered, PartiallyDelivered, Failed, Cancelled, Completed
+    public string DeliveryNotes {get;set;}=""; public DateTime CreatedAt {get;set;}=DateTime.UtcNow; public DateTime UpdatedAt {get;set;}=DateTime.UtcNow;
+}
+
+public class PartnerResourceRequest
+{
+    public Guid Id {get;set;}=Guid.NewGuid(); public Guid TargetOrganisationId {get;set;} public Guid RequestedByOrganisationId {get;set;}
+    public Guid CreatedBy {get;set;} public string Category {get;set;}="Food"; public int Quantity {get;set;}
+    public string Urgency {get;set;}="Medium"; public string Notes {get;set;}="";
+    public string Status {get;set;}="Requested"; // Requested, Acknowledged, Fulfilled, Declined
+    public DateTime CreatedAt {get;set;}=DateTime.UtcNow;
+}
+
+public class StockTransfer
+{
+    public Guid Id {get;set;}=Guid.NewGuid(); public Guid? PartnerOfferId {get;set;}
+    public Guid FromOrganisationId {get;set;} public Guid ToOrganisationId {get;set;}
+    public string Category {get;set;}="Food"; public string ResourceName {get;set;}=""; public int Quantity {get;set;}
+    public string Status {get;set;}="Offered"; // Requested, Offered, Accepted, InTransit, Received, Cancelled
+    public DateTime? SentAt {get;set;} public DateTime? ReceivedAt {get;set;}
+    public Guid? ReceivedBy {get;set;} public string DiscrepancyNotes {get;set;}="";
+    public Guid? TargetResourceId {get;set;} public DateTime CreatedAt {get;set;}=DateTime.UtcNow;
+}
+
+public class DeliveryVerification
+{
+    public Guid Id {get;set;}=Guid.NewGuid(); public Guid DispatchId {get;set;}
+    public string VerificationToken {get;set;}=""; public string ShortCode {get;set;}="";
+    public string QrCodeSvg {get;set;}="";
+    public string Status {get;set;}="Pending"; // Pending, Verified, Expired, Invalidated
+    public DateTime ExpiresAt {get;set;}=DateTime.UtcNow.AddDays(7);
+    public DateTime? VerifiedAt {get;set;} public Guid? VerifiedBy {get;set;}
+    public int DeliveredQuantityConfirmed {get;set;} public string RecipientNotes {get;set;}="";
+    public DateTime CreatedAt {get;set;}=DateTime.UtcNow;
+}

@@ -118,6 +118,98 @@ app.MapPost("/api/auth/login", async (LoginDto input, AidDbContext db, IPassword
 var api = app.MapGroup("/api").RequireAuthorization();
 ExtendedModules.Map(api);
 DonationEndpoints.Map(api);
+api.MapPost("/donation-allocations", async (
+    DonationAllocationInput dto,
+    HttpContext ctx,
+    AidDbContext db,
+    DonationService service) =>
+{
+    if (dto.Amount <= 0 ||
+        decimal.Round(dto.Amount, 2) != dto.Amount ||
+        string.IsNullOrWhiteSpace(dto.Purpose) ||
+        !new[] { "Food", "Water", "Medicine",
+                 "Transport", "Shelter", "Other" }
+            .Contains(dto.Category))
+    {
+        return Results.BadRequest(new
+        {
+            error = "Invalid allocation details."
+        });
+    }
+
+    await using var transaction =
+        await db.Database.BeginTransactionAsync(
+            System.Data.IsolationLevel.Serializable);
+
+    var donation = await db.Donations
+        .FindAsync(dto.DonationId);
+
+    if (donation == null)
+        return Results.NotFound();
+
+    if (donation.Kind != "Monetary" ||
+        donation.Status != "Confirmed")
+    {
+        return Results.Conflict(new
+        {
+            error = "Only confirmed monetary donations can be allocated."
+        });
+    }
+
+    var campaign = await db.Campaigns
+        .FindAsync(donation.CampaignId);
+
+    var actor = await db.Users
+        .FindAsync(Access.UserId(ctx.User));
+
+    if (campaign == null || actor == null)
+        return Results.NotFound();
+
+    if (Access.Role(ctx.User) != Roles.Admin &&
+        (actor.OrganisationId == null ||
+         campaign.OrganisationId != actor.OrganisationId))
+    {
+        return Results.Forbid();
+    }
+
+    var available = await service
+        .GetAvailableFundsAsync(dto.DonationId);
+
+    if (dto.Amount > available)
+    {
+        return Results.Conflict(new
+        {
+            error = "Insufficient available funds.",
+            available
+        });
+    }
+
+    var allocation = new DonationAllocation
+    {
+        DonationId = dto.DonationId,
+        Category = dto.Category,
+        Purpose = dto.Purpose,
+        Amount = dto.Amount,
+        AllocatedBy = actor.Id
+    };
+
+    db.DonationAllocations.Add(allocation);
+
+    TraceLog.Add(
+        db, "DonationAllocation",
+        allocation.Id, "Approved",
+        actor.Id,
+        new { allocation.Amount });
+
+    await db.SaveChangesAsync();
+    await transaction.CommitAsync();
+
+    return Results.Created(
+        $"/api/donation-allocations/{allocation.Id}",
+        allocation);
+})
+.RequireAuthorization(p =>
+    p.RequireRole(Roles.Funding, Roles.Admin));
 api.MapGet("/me", async (HttpContext ctx, AidDbContext db) => {
     var id = Access.UserId(ctx.User);
     return await db.Users.Where(x => x.Id == id).Select(x => new { x.Id, x.DisplayName, x.Email, x.Role, x.OrganisationId }).FirstOrDefaultAsync() is { } me
@@ -321,7 +413,7 @@ volunteers.MapPost("/tasks", async (AssignVolunteerDto dto, HttpContext ctx, Aid
     await db.SaveChangesAsync(); return Results.Ok(task);
 }).RequireAuthorization(p => p.RequireRole(Roles.VolunteerCoordinator, Roles.Coordinator, Roles.Admin));
 volunteers.MapGet("/tasks", async (HttpContext ctx, AidDbContext db) => {
-    if (Access.Staff(ctx.User)) return Results.Ok(await db.VolunteerTasks.OrderByDescending(x => x.At).ToListAsync());
+        if (Access.CanManageVolunteers(ctx.User)) return Results.Ok(await db.VolunteerTasks.OrderByDescending(x => x.At).ToListAsync());
     var id = Access.UserId(ctx.User);
     var volunteerIds = db.Volunteers.Where(x => x.UserId == id).Select(x => x.Id);
     return Results.Ok(await db.VolunteerTasks.Where(x => volunteerIds.Contains(x.VolunteerId)).ToListAsync());
@@ -329,15 +421,13 @@ volunteers.MapGet("/tasks", async (HttpContext ctx, AidDbContext db) => {
 volunteers.MapPatch("/tasks/{id:guid}", async (Guid id, TaskStatusDto dto, HttpContext ctx, AidDbContext db) => {
     var task = await db.VolunteerTasks.FindAsync(id); if (task == null) return Results.NotFound();
     var profile = await db.Volunteers.FindAsync(task.VolunteerId); if (profile == null) return Results.NotFound();
-    if (!Access.Staff(ctx.User) && profile.UserId != Access.UserId(ctx.User)) return Results.Forbid();
+        if (!Access.CanManageVolunteers(ctx.User) && profile.UserId != Access.UserId(ctx.User)) return Results.Forbid();
     if (!((task.Status == "Assigned" && dto.Status == "Accepted") || (task.Status == "Accepted" && dto.Status == "Completed")))
         return Results.Conflict(new { error = "Invalid task state transition" });
     task.Status = dto.Status; if (dto.Status == "Completed") { task.CompletedAt = DateTime.UtcNow; profile.Available = true; }
     TraceLog.Add(db, "VolunteerTask", id, dto.Status, Access.UserId(ctx.User));
     await db.SaveChangesAsync(); return Results.Ok(task);
 });
-
-
 
 api.MapGet("/notifications", async (HttpContext ctx, AidDbContext db) =>
     await db.Notifications.Where(x => x.RecipientId == Access.UserId(ctx.User)).OrderByDescending(x => x.At).Take(100).ToListAsync());

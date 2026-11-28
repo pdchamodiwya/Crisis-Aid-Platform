@@ -225,7 +225,7 @@ public static class DonationEndpoints
             IQueryable<Donation> q =
                 db.Donations.AsNoTracking();
 
-            if (!Access.Staff(ctx.User))
+            if (!Access.CanSeeAllDonations(ctx.User))
             {
                 q = q.Where(x =>
                     x.DonorId ==

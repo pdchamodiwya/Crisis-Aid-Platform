@@ -22,3 +22,39 @@ public record CampaignDto(string Name, Guid CrisisId, decimal TargetAmount);
 public record DonationDto(Guid CampaignId, decimal Amount, string Currency, string Kind);
 public record RoleDto(string Role);
 public record NotifyDto(Guid RecipientId, string Title, string Message, string Language = "en");
+
+// Member 03: Resource, Logistics and Partner Coordination DTOs
+public record CreateResourceDto(string Name, string Category, string Unit, int AvailableQuantity, string Area,
+    double Latitude, double Longitude, bool Accessible = true, DateTime? ExpiresAt = null,
+    string Description = "", string Condition = "Good", string BatchNumber = "", Guid? OrganisationId = null);
+
+public record UpdateResourceDto(string Name, string Category, string Unit, string Area,
+    double Latitude, double Longitude, bool Accessible, DateTime? ExpiresAt,
+    string Description, string Condition, string BatchNumber, bool IsActive);
+
+public record ReplenishResourceDto(int Quantity, string Notes, string? BatchNumber = null, DateTime? ExpiresAt = null);
+
+public record AdjustStockDto(int NewQuantity, string MovementType, string Reason);
+
+public record ShortagePlanRequestDto(string Category, Guid? CrisisId = null);
+
+public record ShortagePlanItemDto(Guid RequestId, Guid ResourceId, int QuantityAllocated);
+
+public record ResolveShortagePlanDto(List<ShortagePlanItemDto> Allocations, string Notes);
+
+public record EnhancedAllocateResourceDto(Guid RequestId, Guid ResourceId, int Quantity, string? Notes = null);
+
+public record CreateDispatchDto(Guid AllocationId, string VehicleId, string AssignedDriver, Guid? AssignedVolunteerId,
+    string DepartureLocation, string Destination, DateTime? EstimatedArrivalTime, int DispatchedQuantity, string? Notes = null);
+
+public record UpdateDispatchStatusDto(string Status, string? Notes = null, int? DeliveredQuantity = null);
+
+public record ConfirmDeliveryDto(int DeliveredQuantity, string? Notes = null, string? QrToken = null);
+
+public record CreatePartnerResourceRequestDto(Guid TargetOrganisationId, string Category, int Quantity, string Urgency, string Notes);
+
+public record CreateStockTransferDto(Guid ToOrganisationId, string Category, string ResourceName, int Quantity, Guid? PartnerOfferId = null, Guid? TargetResourceId = null);
+
+public record ReceiveStockTransferDto(int ConfirmedQuantity, string? DiscrepancyNotes = null, Guid? CreditResourceId = null);
+
+public record VerifyQrDeliveryDto(string Token, int DeliveredQuantity, string? Notes = null);
