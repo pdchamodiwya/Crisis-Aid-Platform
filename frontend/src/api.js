@@ -21,6 +21,7 @@ export const get = (path) => api(path);
 export const post = (path, obj) => api(path, { method: 'POST', body: JSON.stringify(obj) });
 export const patch = (path, obj) => api(path, { method: 'PATCH', body: JSON.stringify(obj) });
 export const put = (path, obj) => api(path, { method: 'PUT', body: JSON.stringify(obj) });
+export const del = (path) => api(path, { method: 'DELETE' });
 export function formatDate(value) { return value ? new Date(value).toLocaleString() : '-'; }
 export function shortId(id) { return id ? `#${id.slice(0, 8).toUpperCase()}` : '-'; }
 export const STAFF = ['SystemAdministrator', 'EmergencyCoordinator', 'CaseManager', 'LogisticsManager', 'ShelterAdministrator', 'VolunteerCoordinator', 'FundingOfficer', 'PartnerOfficer'];
