@@ -1,3 +1,4 @@
+using CrisisAid.Api.Endpoints;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Threading.RateLimiting;
@@ -113,6 +114,7 @@ app.MapPost("/api/auth/login", async (LoginDto input, AidDbContext db, IPassword
 
 var api = app.MapGroup("/api").RequireAuthorization();
 ExtendedModules.Map(api);
+DonationEndpoints.Map(api);
 api.MapGet("/me", async (HttpContext ctx, AidDbContext db) => {
     var id = Access.UserId(ctx.User);
     return await db.Users.Where(x => x.Id == id).Select(x => new { x.Id, x.DisplayName, x.Email, x.Role, x.OrganisationId }).FirstOrDefaultAsync() is { } me
@@ -332,27 +334,7 @@ volunteers.MapPatch("/tasks/{id:guid}", async (Guid id, TaskStatusDto dto, HttpC
     await db.SaveChangesAsync(); return Results.Ok(task);
 });
 
-api.MapGet("/campaigns", async (AidDbContext db) => await db.Campaigns.ToListAsync());
-api.MapPost("/campaigns", async (CampaignDto dto, HttpContext ctx, AidDbContext db) => {
-    if (dto.TargetAmount <= 0 || !await db.Crises.AnyAsync(c => c.Id == dto.CrisisId)) return Results.BadRequest();
-    var campaign = new DonationCampaign { Name = dto.Name, CrisisId = dto.CrisisId, TargetAmount = dto.TargetAmount };
-    db.Campaigns.Add(campaign); TraceLog.Add(db, "Campaign", campaign.Id, "Created", Access.UserId(ctx.User));
-    await db.SaveChangesAsync(); return Results.Ok(campaign);
-}).RequireAuthorization(p => p.RequireRole(Roles.Funding, Roles.Coordinator, Roles.Admin));
-api.MapPost("/donations", async (DonationDto dto, HttpContext ctx, AidDbContext db) => {
-    if (dto.Amount <= 0 || !new[] { "LKR", "USD", "EUR" }.Contains(dto.Currency) ||
-        !await db.Campaigns.AnyAsync(x => x.Id == dto.CampaignId && x.Status == "Open")) return Results.BadRequest();
-    var donation = new Donation { DonorId = Access.UserId(ctx.User), CampaignId = dto.CampaignId,
-        Amount = dto.Amount, Currency = dto.Currency, Kind = dto.Kind, Status = "PledgeRecorded" };
-    db.Donations.Add(donation); TraceLog.Add(db, "Donation", donation.Id, "PledgeRecorded", donation.DonorId,
-        new { donation.CampaignId, donation.Amount, donation.Currency });
-    await db.SaveChangesAsync(); return Results.Ok(donation);
-});
-api.MapGet("/donations", async (HttpContext ctx, AidDbContext db) => {
-    IQueryable<Donation> q = db.Donations.AsNoTracking();
-    if (!Access.Staff(ctx.User)) q = q.Where(x => x.DonorId == Access.UserId(ctx.User));
-    return await q.OrderByDescending(x => x.At).Take(200).ToListAsync();
-});
+
 
 api.MapGet("/notifications", async (HttpContext ctx, AidDbContext db) =>
     await db.Notifications.Where(x => x.RecipientId == Access.UserId(ctx.User)).OrderByDescending(x => x.At).Take(100).ToListAsync());
